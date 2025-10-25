@@ -3,12 +3,13 @@
 import type React from "react"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
+import { ZoomIn, ZoomOut, Maximize2, Link } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Node } from "@/components/node"
 import { CodeEditor } from "@/components/code-editor"
 import { FileNamingModal } from "@/components/file-naming-modal"
-import { FileAPI, FileNode, NodeMetadata } from "@/lib/api"
+import { EdgeCreationModal } from "@/components/edge-creation-modal"
+import { FileAPI, FileNode, NodeMetadata, FolderNode } from "@/lib/api"
 import { toast } from "sonner"
 
 interface CanvasProps {
@@ -39,6 +40,8 @@ interface Edge {
   to: string
   fromPort?: string
   toPort?: string
+  type?: string
+  description?: string
 }
 
 const initialNodes: NodeData[] = [
@@ -46,6 +49,17 @@ const initialNodes: NodeData[] = [
   { id: "2", type: "file", label: "models.py", x: 350, y: 100, status: "idle", filePath: "models.py", fileType: "python", content: "# Data models\nfrom pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n    name: str\n    email: str", isExpanded: false, isModified: false },
   { id: "3", type: "file", label: "config.py", x: 600, y: 100, status: "idle", filePath: "config.py", fileType: "python", content: "# Configuration\nimport os\n\nDATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./app.db\")\nDEBUG = os.getenv(\"DEBUG\", \"False\").lower() == \"true\"", isExpanded: false, isModified: false },
 ]
+
+// Edge type display mapping
+const edgeTypeDisplay: Record<string, string> = {
+  'depends_on': 'depends on',
+  'uses': 'uses',
+  'imports': 'imports',
+  'calls': 'calls',
+  'extends': 'extends',
+  'implements': 'implements',
+  'references': 'references'
+}
 
 const initialEdges: Edge[] = [
   { id: "e1-2", from: "1", to: "2" },
@@ -56,6 +70,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [nodes, setNodes] = useState<NodeData[]>([])
+  const [folders, setFolders] = useState<FolderNode[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
   const [draggingNode, setDraggingNode] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -69,23 +84,43 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
+  
+  // Edge drawing mode state
+  const [isDrawingMode, setIsDrawingMode] = useState(false)
+  const [drawingSourceNode, setDrawingSourceNode] = useState<string | null>(null)
+  const [showEdgeModal, setShowEdgeModal] = useState(false)
+  const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
+  const [edgeToDelete, setEdgeToDelete] = useState<{ from: string; to: string; type: string } | null>(null)
+  const [hoveredEdge, setHoveredEdge] = useState<string | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Load files and metadata from API on component mount
+  // Load files, folders, metadata, and edges from API on component mount
   useEffect(() => {
     const loadData = async () => {
       console.log('Canvas: Starting to load data from API')
       try {
-        console.log('Canvas: Calling FileAPI.getFiles() and FileAPI.getMetadata()')
-        const [files, metadataData] = await Promise.all([
+        console.log('Canvas: Calling FileAPI.getFiles(), FileAPI.getFolders(), FileAPI.getMetadata(), and FileAPI.getEdges()')
+        const [files, foldersData, metadataData, edgesData] = await Promise.all([
           FileAPI.getFiles(),
-          FileAPI.getMetadata()
+          FileAPI.getFolders(),
+          FileAPI.getMetadata(),
+          FileAPI.getEdges()
         ])
         console.log('Canvas: Got files:', files)
+        console.log('Canvas: Got folders:', foldersData)
         console.log('Canvas: Got metadata:', metadataData)
+        console.log('Canvas: Got edges:', edgesData)
         setNodes(files as NodeData[])
+        setFolders(foldersData)
         setMetadata(metadataData)
+        setEdges(edgesData.map((edge: any, index: number) => ({
+          id: `e${edge.from}-${edge.to}`,
+          from: edge.from,
+          to: edge.to,
+          type: edge.type,
+          description: edge.description
+        })))
         setLoading(false)
         console.log('Canvas: Data loading completed successfully')
       } catch (error) {
@@ -102,6 +137,82 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
       onDataChange(nodes, metadata)
     }
   }, [nodes, metadata, loading, onDataChange])
+
+  // Handle node selection (normal mode) or edge drawing (drawing mode)
+  const handleNodeSelect = useCallback((nodeId: string) => {
+    if (isDrawingMode) {
+      if (!drawingSourceNode) {
+        // First node selected - set as source
+        setDrawingSourceNode(nodeId)
+      } else if (drawingSourceNode === nodeId) {
+        // Same node clicked - cancel selection
+        setDrawingSourceNode(null)
+      } else {
+        // Second node selected - create edge
+        setPendingEdge({ from: drawingSourceNode, to: nodeId })
+        setShowEdgeModal(true)
+        setDrawingSourceNode(null)
+      }
+    } else {
+      // Normal mode - select node
+      onSelectNode(nodeId)
+    }
+  }, [isDrawingMode, drawingSourceNode, onSelectNode])
+
+  // Handle edge creation
+  const handleEdgeCreate = useCallback(async (edgeData: { type: string; description?: string }) => {
+    if (!pendingEdge) return
+
+    try {
+      // Create new edge
+      const newEdge: Edge = {
+        id: `e${pendingEdge.from}-${pendingEdge.to}`,
+        from: pendingEdge.from,
+        to: pendingEdge.to,
+        type: edgeData.type,
+        description: edgeData.description
+      }
+
+      // Save to backend
+      await FileAPI.createEdge({
+        from: newEdge.from,
+        to: newEdge.to,
+        type: newEdge.type!,
+        description: newEdge.description
+      })
+
+      // Add to local state
+      setEdges(prev => [...prev, newEdge])
+
+      // Show success message
+      toast.success("Edge created successfully!")
+
+      // Close modal and reset state
+      setShowEdgeModal(false)
+      setPendingEdge(null)
+    } catch (error) {
+      console.error('Failed to create edge:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to create edge')
+    }
+  }, [pendingEdge])
+
+  // Handle edge deletion
+  const handleEdgeDelete = useCallback(async (from: string, to: string, type: string) => {
+    try {
+      await FileAPI.deleteEdge(from, to, type)
+      
+      // Remove from local state
+      setEdges(prev => prev.filter(edge => !(
+        edge.from === from && edge.to === to && edge.type === type
+      )))
+      
+      toast.success("Edge deleted successfully!")
+      setEdgeToDelete(null)
+    } catch (error) {
+      console.error('Failed to delete edge:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to delete edge')
+    }
+  }, [])
 
   const handleNodeDragStart = useCallback(
     (nodeId: string, e: React.MouseEvent) => {
@@ -432,6 +543,51 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
         >
           <Maximize2 className="w-4 h-4" />
         </Button>
+        <Button
+          size="sm"
+          variant={isDrawingMode ? "default" : "ghost"}
+          onClick={() => {
+            if (isDrawingMode) {
+              // Exit drawing mode
+              setIsDrawingMode(false)
+              setDrawingSourceNode(null)
+            } else {
+              // Enter drawing mode
+              setIsDrawingMode(true)
+            }
+          }}
+          className={`neu-raised neu-hover neu-active ${
+            isDrawingMode 
+              ? "bg-primary text-primary-foreground" 
+              : "bg-card text-foreground"
+          }`}
+        >
+          <Link className="w-4 h-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={async () => {
+            try {
+              const folderName = prompt('Enter folder name:', 'New Folder')
+              if (!folderName) return
+              
+              const newFolder = await FileAPI.createFolder(folderName, 150, 150)
+              const updatedFolders = await FileAPI.getFolders()
+              setFolders(updatedFolders)
+              toast.success('Folder created!')
+            } catch (error) {
+              console.error('Failed to create folder:', error)
+              toast.error('Failed to create folder')
+            }
+          }}
+          className="neu-raised neu-hover neu-active bg-card text-foreground"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="mr-2">
+            <path d="M2 4C2 2.89543 2.89543 2 4 2H6.17157C6.70201 2 7.21071 2.21071 7.58579 2.58579L8.41421 3.41421C8.78929 3.78929 9.29799 4 9.82843 4H12C13.1046 4 14 4.89543 14 6V12C14 13.1046 13.1046 14 12 14H4C2.89543 14 2 13.1046 2 12V4Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Folder
+        </Button>
       </div>
 
       {/* Grid background with pan/zoom */}
@@ -460,6 +616,25 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
         >
           {/* Edges */}
           <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+            <defs>
+              {/* Gradient definitions */}
+              <linearGradient id="edgeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="oklch(0.5 0.15 250)" stopOpacity="0.8" />
+                <stop offset="100%" stopColor="oklch(0.6 0.18 260)" stopOpacity="0.9" />
+              </linearGradient>
+              <linearGradient id="edgeGradientActive" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="oklch(0.65 0.22 250)" stopOpacity="1" />
+                <stop offset="100%" stopColor="oklch(0.7 0.24 260)" stopOpacity="1" />
+              </linearGradient>
+              {/* Glow filter for hover */}
+              <filter id="edgeGlow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
             {edges.map((edge) => {
               const fromNode = nodes.find((n) => n.id === edge.from)
               const toNode = nodes.find((n) => n.id === edge.to)
@@ -473,34 +648,147 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
               const isActive =
                 (fromNode.status === "running" || fromNode.status === "success") &&
                 toNode.status !== "idle"
+              
+              const isHovered = hoveredEdge === edge.id
+              const centerX = (fromX + toX) / 2
+              const centerY = (fromY + toY) / 2
 
               return (
                 <g key={edge.id}>
                   <defs>
                     <marker
                       id={`arrowhead-${edge.id}`}
-                      markerWidth="10"
-                      markerHeight="10"
-                      refX="9"
-                      refY="3"
+                      markerWidth="12"
+                      markerHeight="12"
+                      refX="10"
+                      refY="3.5"
                       orient="auto"
                     >
                       <polygon
-                        points="0 0, 10 3, 0 6"
-                        fill={isActive ? "oklch(0.6 0.18 250)" : "oklch(0.35 0.02 250)"}
+                        points="0 0, 10 3.5, 0 7"
+                        fill={isActive ? "url(#edgeGradientActive)" : isHovered ? "oklch(0.6 0.18 250)" : "oklch(0.4 0.05 250)"}
                       />
                     </marker>
                   </defs>
+                  
+                  {/* Invisible wider path for easier hover */}
                   <path
                     d={`M ${fromX} ${fromY} C ${fromX + 100} ${fromY}, ${toX - 100} ${toY}, ${toX} ${toY}`}
                     fill="none"
-                    stroke={isActive ? "oklch(0.6 0.18 250)" : "oklch(0.35 0.02 250)"}
-                    strokeWidth="2"
+                    stroke="transparent"
+                    strokeWidth="20"
+                    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                    onMouseEnter={() => setHoveredEdge(edge.id)}
+                    onMouseLeave={() => setHoveredEdge(null)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setEdgeToDelete({ from: edge.from, to: edge.to, type: edge.type || 'depends_on' })
+                    }}
+                  />
+                  
+                  {/* Visible edge path */}
+                  <path
+                    d={`M ${fromX} ${fromY} C ${fromX + 100} ${fromY}, ${toX - 100} ${toY}, ${toX} ${toY}`}
+                    fill="none"
+                    stroke={isActive ? "url(#edgeGradientActive)" : isHovered ? "oklch(0.6 0.18 250)" : "oklch(0.4 0.05 250)"}
+                    strokeWidth={isHovered ? "3" : "2"}
                     markerEnd={`url(#arrowhead-${edge.id})`}
                     className={isActive ? "animate-pulse" : ""}
+                    style={{ 
+                      pointerEvents: 'none',
+                      filter: isHovered ? 'url(#edgeGlow)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
                   />
+                  
+                  {/* Edge type label with improved styling */}
+                  {edge.type && (
+                    <g style={{ pointerEvents: 'none' }}>
+                      {(() => {
+                        const displayText = edgeTypeDisplay[edge.type] || edge.type.replace('_', ' ')
+                        const textWidth = displayText.length * 7 + 16
+                        const textHeight = 20
+                        
+                        return (
+                          <>
+                            {/* Shadow for depth */}
+                            <rect
+                              x={centerX - textWidth / 2 + 1}
+                              y={centerY - textHeight / 2 + 1}
+                              width={textWidth}
+                              height={textHeight}
+                              rx="10"
+                              fill="oklch(0 0 0 / 0.3)"
+                            />
+                            {/* Background with gradient */}
+                            <rect
+                              x={centerX - textWidth / 2}
+                              y={centerY - textHeight / 2}
+                              width={textWidth}
+                              height={textHeight}
+                              rx="10"
+                              fill={isHovered ? "oklch(0.25 0.05 250)" : "oklch(0.18 0.02 250)"}
+                              stroke={isHovered ? "oklch(0.5 0.15 250)" : "oklch(0.35 0.05 250)"}
+                              strokeWidth="1.5"
+                              style={{ transition: 'all 0.2s ease' }}
+                            />
+                            {/* Edge type text */}
+                            <text
+                              x={centerX}
+                              y={centerY + 4}
+                              textAnchor="middle"
+                              fontSize="11"
+                              fill={isHovered ? "oklch(0.85 0.1 250)" : "oklch(0.75 0.05 250)"}
+                              fontFamily="system-ui, -apple-system, sans-serif"
+                              fontWeight="600"
+                              style={{ transition: 'all 0.2s ease' }}
+                            >
+                              {displayText}
+                            </text>
+                          </>
+                        )
+                      })()}
+                    </g>
+                  )}
+                  
+                  {/* Delete button on hover */}
+                  {isHovered && (
+                    <g
+                      style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEdgeToDelete({ from: edge.from, to: edge.to, type: edge.type || 'depends_on' })
+                      }}
+                    >
+                      {/* Delete button background */}
+                      <circle
+                        cx={centerX + 60}
+                        cy={centerY}
+                        r="12"
+                        fill="oklch(0.25 0.05 250)"
+                        stroke="oklch(0.5 0.15 250)"
+                        strokeWidth="2"
+                        style={{ transition: 'all 0.2s ease' }}
+                      />
+                      <circle
+                        cx={centerX + 60}
+                        cy={centerY}
+                        r="12"
+                        fill="oklch(0.4 0.2 10 / 0.1)"
+                      />
+                      {/* X icon */}
+                      <path
+                        d={`M ${centerX + 55} ${centerY - 5} L ${centerX + 65} ${centerY + 5} M ${centerX + 65} ${centerY - 5} L ${centerX + 55} ${centerY + 5}`}
+                        stroke="oklch(0.7 0.15 10)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </g>
+                  )}
+                  
+                  {/* Animated dot for active edges */}
                   {isActive && (
-                    <circle r="4" fill="oklch(0.6 0.18 250)">
+                    <circle r="4" fill="oklch(0.7 0.24 260)">
                       <animateMotion
                         dur="2s"
                         repeatCount="indefinite"
@@ -535,6 +823,87 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
               })()}
           </svg>
 
+          {/* Folders */}
+          {folders.map((folder) => (
+            <div
+              key={folder.id}
+              className="absolute"
+              style={{
+                left: folder.x,
+                top: folder.y,
+                width: folder.width,
+                height: folder.height,
+                pointerEvents: 'auto'
+              }}
+            >
+              {/* Folder Container */}
+              <div className="relative w-full h-full rounded-2xl border-2 border-primary/30 bg-card/40 backdrop-blur-sm shadow-lg">
+                {/* Folder Header */}
+                <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-r from-primary/20 to-primary/10 rounded-t-2xl border-b border-primary/30 flex items-center px-4 gap-3">
+                  <button
+                    onClick={async () => {
+                      try {
+                        await FileAPI.updateFolder(folder.id, { isExpanded: !folder.isExpanded })
+                        const updatedFolders = await FileAPI.getFolders()
+                        setFolders(updatedFolders)
+                      } catch (error) {
+                        console.error('Failed to toggle folder:', error)
+                      }
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded hover:bg-primary/20 transition-colors"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      className={`transition-transform ${folder.isExpanded ? 'rotate-90' : ''}`}
+                    >
+                      <path
+                        d="M6 4L10 8L6 12"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <span className="text-sm font-semibold text-foreground">{folder.name}</span>
+                  <span className="text-xs text-muted-foreground">({folder.containedFiles.length} files)</span>
+                  <button
+                    onClick={async () => {
+                      if (confirm(`Delete folder "${folder.name}"?`)) {
+                        try {
+                          await FileAPI.deleteFolder(folder.id)
+                          const updatedFolders = await FileAPI.getFolders()
+                          setFolders(updatedFolders)
+                          toast.success('Folder deleted')
+                        } catch (error) {
+                          console.error('Failed to delete folder:', error)
+                          toast.error('Failed to delete folder')
+                        }
+                      }
+                    }}
+                    className="ml-auto w-6 h-6 flex items-center justify-center rounded hover:bg-destructive/20 transition-colors"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                
+                {/* Folder Content Area */}
+                {folder.isExpanded && (
+                  <div className="absolute top-12 left-0 right-0 bottom-0 p-4 overflow-hidden">
+                    <div className="text-xs text-muted-foreground text-center mt-8">
+                      Drag files here to organize
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
           {/* Nodes */}
           {nodes.map((node) => (
             <Node
@@ -546,7 +915,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
               y={node.y}
               status={node.status}
               isSelected={selectedNode === node.id}
-              onSelect={() => onSelectNode(node.id)}
+              onSelect={() => handleNodeSelect(node.id)}
               onDragStart={handleNodeDragStart}
               onDelete={handleNodeDelete}
               onConnectionStart={handleConnectionStart}
@@ -559,6 +928,9 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
               onExpand={handleNodeExpand}
               onGenerateCode={handleGenerateCode}
               isGenerating={generatingNodeId === node.id}
+              isDrawingMode={isDrawingMode}
+              isDrawingSource={drawingSourceNode === node.id}
+              isDrawingTarget={isDrawingMode && !!drawingSourceNode && drawingSourceNode !== node.id}
             />
           ))}
         </div>
@@ -590,6 +962,53 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
         }}
         onCreateFile={handleFileCreate}
       />
+
+      {/* Edge Creation Modal */}
+      <EdgeCreationModal
+        isOpen={showEdgeModal && !!pendingEdge}
+        onClose={() => {
+          setShowEdgeModal(false)
+          setPendingEdge(null)
+        }}
+        onCreateEdge={handleEdgeCreate}
+        fromNodeId={pendingEdge?.from || ""}
+        toNodeId={pendingEdge?.to || ""}
+      />
+
+      {/* Edge Deletion Confirmation Modal */}
+      {edgeToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-xl p-6 w-96 max-w-[90vw] border border-border/20">
+            <h3 className="text-lg font-semibold mb-4">Delete Edge</h3>
+            
+            <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Are you sure you want to delete the edge from <span className="font-medium text-foreground">{edgeToDelete.from}</span> to <span className="font-medium text-foreground">{edgeToDelete.to}</span>?
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Type: {edgeTypeDisplay[edgeToDelete.type] || edgeToDelete.type}
+              </p>
+            </div>
+            
+            <div className="flex gap-2 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setEdgeToDelete(null)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => handleEdgeDelete(edgeToDelete.from, edgeToDelete.to, edgeToDelete.type)}
+                className="flex-1"
+              >
+                Delete Edge
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Code Editor Modal */}
       {expandedNode && (() => {

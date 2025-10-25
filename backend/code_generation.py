@@ -86,7 +86,7 @@ class CodeGenerationService:
         return fallback_metadata_plan(project_spec)
     
     async def prepare_project_workspace(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Transform the saved project spec into canvas metadata and placeholder files."""
+        """Transform the saved project spec into canvas metadata and placeholder node files."""
         plan = await self.plan_workspace_with_letta(project_spec)
         files_plan = plan.get("files") or []
         edges_plan_raw = plan.get("edges") or []
@@ -101,7 +101,7 @@ class CodeGenerationService:
             if isinstance(edge, dict) and edge.get("from") and edge.get("to")
         ]
 
-        # Clear existing files
+        # Clear existing node files
         file_db.files_db.clear()
 
         for index, file_entry in enumerate(files_plan):
@@ -238,7 +238,7 @@ Generate ONLY the code:"""
             file_path = CANVAS_DIR / file_name
             file_path.write_text(generated_code, encoding='utf-8')
             
-            # Update the file content in files_db
+            # Update the node file content in files_db
             if file_id in file_db.files_db:
                 file_db.files_db[file_id].content = generated_code
             
@@ -259,7 +259,7 @@ Generate ONLY the code:"""
             raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
     
     async def run_project(self) -> Dict[str, Any]:
-        """Run the project by generating code for all files based on metadata."""
+        """Run the project by generating code for all node files based on metadata."""
         if not self.is_initialized():
             raise HTTPException(status_code=503, detail="Letta agent not initialized")
         
@@ -278,12 +278,12 @@ Generate ONLY the code:"""
             total_files = sum(1 for node_data in metadata.values() if node_data.get("type") == "file")
             
             if total_files == 0:
-                output_logger.write_output("❌ No file nodes found in metadata", "ERROR")
-                return {"message": "No file nodes found", "generated_files": [], "progress": []}
+                output_logger.write_output("❌ No node file nodes found in metadata", "ERROR")
+                return {"message": "No node file nodes found", "generated_files": [], "progress": []}
             
             output_logger.write_output("🚀 Starting project generation...", "INFO")
             output_logger.write_output(f"📋 Found {len(metadata)} nodes in metadata", "INFO")
-            output_logger.write_output(f"📁 Processing {total_files} files...", "INFO")
+            output_logger.write_output(f"📁 Processing {total_files} node files...", "INFO")
             
             # Process each file node in metadata
             for i, (node_id, node_data) in enumerate(metadata.items(), 1):
@@ -332,7 +332,7 @@ Generate ONLY the code:"""
                         file_path = CANVAS_DIR / file_name
                         file_path.write_text(generated_code, encoding='utf-8')
                         
-                        # Update the file content in files_db
+                        # Update the node file content in files_db
                         if node_id in file_db.files_db:
                             file_db.files_db[node_id].content = generated_code
                         
@@ -348,10 +348,10 @@ Generate ONLY the code:"""
                         output_logger.write_output(f"❌ [{i}/{total_files}] Failed to generate code for {file_name}", "ERROR")
             
             output_logger.write_output(f"🎉 Generation complete!", "SUCCESS")
-            output_logger.write_output(f"📊 Generated {len(generated_files)} files successfully", "SUCCESS")
+            output_logger.write_output(f"📊 Generated {len(generated_files)} node files successfully", "SUCCESS")
             
             return {
-                "message": f"Generated code for {len(generated_files)} files",
+                "message": f"Generated code for {len(generated_files)} node files",
                 "generated_files": generated_files,
                 "total_processed": len(generated_files)
             }

@@ -1,5 +1,5 @@
 """
-Database and file system operations for managing files and metadata.
+Database and node system operations for managing nodes and metadata.
 """
 import os
 import json
@@ -12,14 +12,14 @@ from models import FileNode, NodeMetadata
 
 
 class FileDatabase:
-    """Manages file nodes and metadata storage."""
+    """Manages node files and metadata storage."""
     
     def __init__(self):
         self.files_db: Dict[str, FileNode] = {}
         self._load_existing_files()
     
     def _load_existing_files(self):
-        """Load existing files from filesystem and metadata."""
+        """Load existing node files from filesystem and metadata."""
         metadata = self.load_metadata()
         
         for node_id, node_meta in metadata.items():
@@ -135,7 +135,7 @@ class FileDatabase:
         
         self.files_db[file_id] = new_file
         
-        # Create actual file on filesystem
+        # Create actual node file on filesystem
         file_path = CANVAS_DIR / file_create_data["filePath"]
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(file_create_data.get("content", ""), encoding='utf-8')
@@ -193,7 +193,7 @@ class FileDatabase:
         if file_id not in self.files_db:
             raise ValueError("File not found")
         
-        # Remove from filesystem
+        # Remove node file from filesystem
         file_path = CANVAS_DIR / self.files_db[file_id].filePath
         if file_path.exists():
             file_path.unlink()

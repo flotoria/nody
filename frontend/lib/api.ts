@@ -13,6 +13,20 @@ export interface FileNode {
   content?: string
   isExpanded?: boolean
   isModified?: boolean
+  parentFolder?: string
+}
+
+export interface FolderNode {
+  id: string
+  type: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  isExpanded: boolean
+  containedFiles: string[]
+  parentFolder?: string
 }
 
 export interface FileContent {
@@ -219,10 +233,112 @@ export class FileAPI {
     return response.json()
   }
 
+  static async getEdges(): Promise<Array<{ from: string; to: string; type?: string; description?: string }>> {
+    const response = await fetch(`${API_BASE_URL}/edges`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch edges')
+    }
+    return response.json()
+  }
+
+  static async createEdge(edgeData: { from: string; to: string; type: string; description?: string }): Promise<{ message: string; edge: any }> {
+    const response = await fetch(`${API_BASE_URL}/edges`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(edgeData),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to create edge')
+    }
+    return response.json()
+  }
+
+  static async deleteEdge(from: string, to: string, type: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/edges?from_node=${from}&to_node=${to}&edge_type=${type}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to delete edge')
+    }
+    return response.json()
+  }
+
   static async getOutput(): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
     const response = await fetch(`${API_BASE_URL}/output`)
     if (!response.ok) {
       throw new Error('Failed to fetch output')
+    }
+    return response.json()
+  }
+
+  // ==================== FOLDER OPERATIONS ====================
+
+  static async getFolders(): Promise<FolderNode[]> {
+    const response = await fetch(`${API_BASE_URL}/folders`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch folders')
+    }
+    return response.json()
+  }
+
+  static async createFolder(name: string, x: number = 100, y: number = 100, width: number = 600, height: number = 400): Promise<FolderNode> {
+    const response = await fetch(`${API_BASE_URL}/folders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, x, y, width, height }),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to create folder')
+    }
+    return response.json()
+  }
+
+  static async updateFolder(folderId: string, updates: Partial<FolderNode>): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to update folder')
+    }
+    return response.json()
+  }
+
+  static async deleteFolder(folderId: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to delete folder')
+    }
+    return response.json()
+  }
+
+  static async moveFileToFolder(fileId: string, folderId: string | null): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/folder?folder_id=${folderId || ''}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to move file')
     }
     return response.json()
   }
@@ -233,6 +349,37 @@ export class FileAPI {
     })
     if (!response.ok) {
       throw new Error('Failed to clear output')
+    }
+  }
+
+  static async clearCanvas(): Promise<void> {
+    try {
+      // Clear all files
+      const files = await this.getFiles()
+      for (const file of files) {
+        await this.deleteFile(file.id)
+      }
+      
+      // Clear edges by setting empty array
+      await fetch(`${API_BASE_URL}/edges`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ edges: [] }),
+      })
+      
+      // Clear metadata by setting empty object
+      await fetch(`${API_BASE_URL}/metadata`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      })
+    } catch (error) {
+      console.error('Failed to clear canvas:', error)
+      throw new Error('Failed to clear canvas')
     }
   }
 

@@ -74,15 +74,15 @@ def extract_structured_payload(raw_content: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Assistant response could not be parsed as JSON") from exc
 
 
-def generate_default_edges(files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Create a simple set of dependency edges between consecutive files."""
+def generate_default_edges(node_files: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Create a simple set of dependency edges between consecutive node files."""
     edges: List[Dict[str, Any]] = []
-    if len(files) < 2:
+    if len(node_files) < 2:
         return edges
 
-    for index in range(len(files) - 1):
-        source = files[index]
-        target = files[index + 1]
+    for index in range(len(node_files) - 1):
+        source = node_files[index]
+        target = node_files[index + 1]
         edges.append({
             "from": source["id"],
             "to": target["id"],
@@ -98,7 +98,7 @@ def fallback_metadata_plan(project_spec: Dict[str, Any]) -> Dict[str, Any]:
     goals = project_spec.get("goals") or []
     extension = infer_default_extension(project_spec)
 
-    files: List[Dict[str, Any]] = []
+    node_files: List[Dict[str, Any]] = []
 
     if features:
         for index, feature in enumerate(features, start=1):
@@ -118,7 +118,7 @@ def fallback_metadata_plan(project_spec: Dict[str, Any]) -> Dict[str, Any]:
                 description_parts.append("Project goals to consider:")
                 description_parts.extend(f"- {goal}" for goal in goals)
 
-            files.append({
+            node_files.append({
                 "id": slug,
                 "file_name": file_name,
                 "label": os.path.basename(file_name),
@@ -127,19 +127,19 @@ def fallback_metadata_plan(project_spec: Dict[str, Any]) -> Dict[str, Any]:
     else:
         base_name = slugify(project_spec.get("title", "app"))
         file_name = f"backend/{base_name}{extension}"
-        files.append({
+        node_files.append({
             "id": base_name,
             "file_name": file_name,
             "label": os.path.basename(file_name),
             "description": project_spec.get("summary", "Implement the main application entrypoint."),
         })
 
-    edges = generate_default_edges(files)
-    return {"files": files, "edges": edges}
+    edges = generate_default_edges(node_files)
+    return {"files": node_files, "edges": edges}
 
 
 def sanitize_plan(plan_data: Dict[str, Any], project_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Ensure the metadata plan contains valid, normalized files and edges."""
+    """Ensure the metadata plan contains valid, normalized node files and edges."""
     raw_files = plan_data.get("files")
     if not isinstance(raw_files, list) or not raw_files:
         return fallback_metadata_plan(project_spec)

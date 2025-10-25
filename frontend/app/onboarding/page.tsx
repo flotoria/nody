@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { FolderOpen, Bot, FileText, RefreshCcw, CheckCircle2 } from "lucide-react"
+import { FolderOpen, Bot, FileText, RefreshCcw, CheckCircle2, Plus } from "lucide-react"
 import RaysBackground from "@/components/rays-background"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
@@ -206,6 +206,19 @@ export default function OnboardingPage() {
     }
   }
 
+  const handleStartEmpty = async () => {
+    try {
+      // Clear all canvas data
+      await FileAPI.clearCanvas()
+      
+      // Navigate to main page
+      router.push("/")
+    } catch (error) {
+      console.error("Failed to clear canvas:", error)
+      window.alert("Unable to clear canvas. Please try again.")
+    }
+  }
+
   const renderTechnicalStack = (spec: ProjectSpec) => (
     <div className="grid gap-3 md:grid-cols-2">
       <div>
@@ -315,6 +328,34 @@ export default function OnboardingPage() {
                   className="hidden"
                   onChange={handleFilesChosen}
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="relative my-8">
+            <Separator />
+            <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 top-1/2">
+              <div className="px-3 py-1 rounded-full text-[10px] bg-card border text-muted-foreground shadow-sm">OR</div>
+            </div>
+          </div>
+
+          <Card
+            role="button"
+            aria-label="Start with empty project"
+            onClick={handleStartEmpty}
+            className="group neu-raised neu-hover neu-hover-strong neu-active hover-glow-primary bg-card/80 backdrop-blur border px-4 cursor-pointer transition-all"
+          >
+            <CardContent className="py-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
+                  <Plus className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <div className="text-base font-semibold">Start with Empty Project</div>
+                  <div className="text-xs text-muted-foreground">
+                    Begin with a clean canvas and build your project from scratch.
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

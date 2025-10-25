@@ -17,6 +17,20 @@ class FileNode(BaseModel):
     content: Optional[str] = None
     isExpanded: bool = False
     isModified: bool = False
+    parentFolder: Optional[str] = None  # ID of containing folder
+
+
+class FolderNode(BaseModel):
+    id: str
+    type: str = "folder"
+    name: str
+    x: float
+    y: float
+    width: float = 600
+    height: float = 400
+    isExpanded: bool = True
+    containedFiles: List[str] = Field(default_factory=list)
+    parentFolder: Optional[str] = None  # For nested folders
 
 
 class FileContent(BaseModel):
@@ -92,3 +106,22 @@ class AgentChatResponse(BaseModel):
 
 class TerminalCommand(BaseModel):
     command: str
+
+
+class FolderCreate(BaseModel):
+    name: str
+    x: float = 100
+    y: float = 100
+    width: float = 600
+    height: float = 400
+    parentFolder: Optional[str] = None
+
+
+class FolderUpdate(BaseModel):
+    name: Optional[str] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
+    isExpanded: Optional[bool] = None
+    containedFiles: Optional[List[str]] = None

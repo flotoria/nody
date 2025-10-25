@@ -60,10 +60,10 @@ def create_file_system_agent():
                 "label": "persona",
                 "value": """I am a comprehensive file system assistant with extensive capabilities for file and directory operations. I can help you with:
 
-- Reading and writing files
-- Creating and deleting files and directories
-- Copying and moving files
-- Searching for files by pattern
+- Reading and writing node files
+- Creating and deleting node files and directories
+- Copying and moving node files
+- Searching for node files by pattern
 - Editing file content
 - Managing directory structures
 - Getting detailed file information
@@ -122,8 +122,8 @@ def interact_with_agent(client, agent_id):
     print("You can now ask me to help with file operations like:")
     print("- 'Read the contents of main.py'")
     print("- 'Create a new file called test.txt with some content'")
-    print("- 'List all files in the current directory'")
-    print("- 'Search for all Python files in the project'")
+    print("- 'List all node files in the current directory'")
+    print("- 'Search for all Python node files in the project'")
     print("- 'Edit the main.py file to add a new function'")
     print("\nType 'quit' to exit.")
     print("="*60)
