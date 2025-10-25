@@ -172,27 +172,18 @@ Guidelines:
 - While status is "collecting", assistant_message must include at least one targeted follow-up question that helps resolve the highest-priority missing information.
 - Once you have enough detail, set status to "ready", ensure missing_information is an empty array, provide the complete project_spec, and summarise the plan in assistant_message.
 """.strip()
-ONBOARDING_METADATA_PROMPT = """
-You are Nody's project planner. Convert a confirmed project specification into a concrete implementation plan for the code generator.
+LETTA_METADATA_SYSTEM_PROMPT = """
+You are Nody's workspace architect. Using a confirmed project specification, design the canvas workspace.
 
-Return ONLY a JSON object with the following keys:
-- files: array of file nodes that should exist in the project. Each object MUST include:
-  - id: unique identifier (snake_case, no spaces)
-  - file_name: relative path including extension (e.g. "backend/api/auth.py")
-  - label: short display label (typically the file's basename)
-  - description: detailed guidance for code generation describing responsibilities, APIs, data models, and acceptance criteria.
-- edges: array describing high-level relationships between files. Each edge object should include:
-  - from: source file id
-  - to: target file id
-  - type: short string such as "depends_on", "calls", or "data_flow"
-  - description: one sentence explaining the relationship
+Respond ONLY with minified JSON (no markdown, no commentary) that includes these keys:
+- files: array of objects with fields { "id": string (snake_case), "file_name": string (relative path, include extension), "label": string (short display name), "description": string (detailed implementation guidance) }.
+- edges: array of objects with fields { "from": string (file id), "to": string (file id), "type": string (relationship such as "depends_on" or "calls"), "description": string }.
 
 Guidelines:
-- Produce between 3 and 12 files covering the major features, API surfaces, data models, configuration, and front-end pieces mentioned in the specification.
-- Choose reasonable directories based on the described technical stack (e.g. Next.js => "frontend/app/...tsx", FastAPI => "backend/api/...py").
-- Ensure the descriptions contain enough detail for an LLM to implement each file end-to-end without further context.
-- If the specification is sparse, still create a viable scaffold using the provided goals.
-- Output must be raw JSON with keys exactly as described. Do not use code fences or add narrative text.
+- Produce 4-12 files covering backend, frontend, configuration, and data/model layers implied by the specification.
+- Choose reasonable directories that match the tech stack (e.g., Next.js -> "frontend/app", FastAPI -> "backend/api").
+- Descriptions must contain enough details for another agent to implement the file without additional context.
+- Keep JSON valid, no trailing commas, no code fences, and no extra keys.
 """.strip()
 
 def load_existing_files():
@@ -386,7 +377,7 @@ def _persist_project_spec(session_id: str, project_spec: Dict[str, Any]) -> Dict
 
 
 def _extract_structured_payload(raw_content: str) -> Dict[str, Any]:
-    """Parse the Groq assistant response into a structured JSON payload."""
+    """Parse an assistant response into a structured JSON payload."""
     content = raw_content.strip()
     if content.startswith("```"):
         content = content.strip("`")
@@ -396,7 +387,7 @@ def _extract_structured_payload(raw_content: str) -> Dict[str, Any]:
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail="Groq response could not be parsed as JSON") from exc
+        raise HTTPException(status_code=502, detail="Assistant response could not be parsed as JSON") from exc
 
 
 async def _invoke_groq(messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -440,36 +431,6 @@ def _slugify(value: str) -> str:
     cleaned = ''.join(char if char.isalnum() else '_' for char in value.lower())
     cleaned = '_'.join(part for part in cleaned.split('_') if part)
     return cleaned or "node"
-
-
-def _infer_default_extension(project_spec: Dict[str, Any]) -> str:
-    """Guess a sensible default file extension based on the declared tech stack."""
-    stack = project_spec.get("technical_stack", {})
-    combined = " ".join([
-        stack.get("frontend", ""),
-        stack.get("backend", ""),
-        stack.get("api", ""),
-        stack.get("infrastructure", ""),
-    ]).lower()
-
-    if any(keyword in combined for keyword in ["python", "fastapi", "django", "flask"]):
-        return ".py"
-    if any(keyword in combined for keyword in ["typescript", "next", "react", "angular"]):
-        return ".tsx"
-    if "javascript" in combined or "node" in combined or "express" in combined:
-        return ".js"
-    if "go" in combined:
-        return ".go"
-    if "java" in combined or "spring" in combined:
-        return ".java"
-    if "c#" in combined or "dotnet" in combined:
-        return ".cs"
-    if "swift" in combined:
-        return ".swift"
-    if "kotlin" in combined:
-        return ".kt"
-    return ".txt"
-
 
 def _infer_file_type_from_name(file_name: str) -> str:
     """Map a file extension to a FileNode friendly type label."""
@@ -518,88 +479,37 @@ def save_edges(edges: List[Dict[str, Any]]):
         print(f"Error saving edges: {exc}")
 
 
-def _fallback_metadata_plan(project_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a deterministic scaffold when Groq is unavailable or returns nothing."""
-    features = project_spec.get("primary_features") or []
-    goals = project_spec.get("goals") or []
-    extension = _infer_default_extension(project_spec)
-    files_plan = []
-    edges_plan = []
+def _plan_workspace_with_letta(project_spec: Dict[str, Any]) -> Dict[str, Any]:
+    """Request the Letta agent to design file and edge metadata for the canvas."""
+    if not _client or not _agent:
+        raise HTTPException(status_code=503, detail="Letta agent not initialized")
 
-    if not features:
-        files_plan.append({
-            "id": "project_entrypoint",
-            "label": f"app{extension.lstrip('.')}",
-            "file_name": f"app/app{extension}",
-            "description": (
-                f"Project entrypoint implementing the core workflow. Summary: {project_spec.get('summary', 'No summary provided')}."
-                " Include setup for the selected tech stack and placeholders for the major goals."
-            ),
-        })
-    else:
-        for index, feature in enumerate(features, start=1):
-            name = feature.get("name") or f"Feature {index}"
-            slug = _slugify(name)
-            directory = "app"
-            if extension in {".py", ".go", ".java", ".cs", ".kt"}:
-                directory = "backend"
-            elif extension in {".tsx", ".ts", ".js", ".jsx"}:
-                directory = "frontend"
-            file_name = f"{directory}/{slug}{extension}"
-            description_lines = [
-                f"Implement the feature '{name}'.",
-                feature.get("description", ""),
-            ]
-            criteria = feature.get("acceptance_criteria") or []
-            if criteria:
-                description_lines.append("Acceptance criteria:")
-                description_lines.extend(f"- {item}" for item in criteria)
-            if goals:
-                description_lines.append("Overall project goals to respect:")
-                description_lines.extend(f"- {goal}" for goal in goals)
-
-            files_plan.append({
-                "id": slug,
-                "label": os.path.basename(file_name),
-                "file_name": file_name,
-                "description": "\n".join(line for line in description_lines if line),
-            })
-
-            if index > 1:
-                edges_plan.append({
-                    "from": files_plan[index - 2]["id"],
-                    "to": slug,
-                    "type": "depends_on",
-                    "description": f"{files_plan[index - 2]['label']} provides data consumed by {os.path.basename(file_name)}.",
-                })
-
-    return {"files": files_plan, "edges": edges_plan}
-
-
-async def _generate_metadata_from_spec(project_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Use Groq to convert the project specification into file and edge metadata."""
     try:
-        response = await _invoke_groq([
-            {"role": "system", "content": ONBOARDING_METADATA_PROMPT},
-            {"role": "user", "content": json.dumps(project_spec, indent=2, ensure_ascii=False)},
-        ])
-        assistant_content = response["choices"][0]["message"]["content"]
-        payload = _extract_structured_payload(assistant_content)
-    except HTTPException:
-        raise
+        response = _client.agents.messages.create(
+            agent_id=_agent.id,
+            messages=[
+                {"role": "system", "content": LETTA_METADATA_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"project_spec": project_spec},
+                        indent=2,
+                        ensure_ascii=False
+                    ),
+                },
+            ],
+        )
     except Exception as exc:
-        print(f"Groq metadata planning failed: {exc}")
-        return _fallback_metadata_plan(project_spec)
+        raise HTTPException(status_code=502, detail=f"Failed to contact Letta agent: {exc}") from exc
 
-    files_plan = payload.get("files")
-    if not isinstance(files_plan, list) or not files_plan:
-        return _fallback_metadata_plan(project_spec)
+    for message in response.messages:
+        if message.message_type == "assistant_message" and message.content:
+            try:
+                return _extract_structured_payload(message.content)
+            except HTTPException as parse_error:
+                raise HTTPException(status_code=502, detail="Letta agent returned invalid metadata JSON") from parse_error
 
-    edges_plan = payload.get("edges")
-    if not isinstance(edges_plan, list):
-        edges_plan = []
-
-    return {"files": files_plan, "edges": edges_plan}
+    raise HTTPException(status_code=502, detail="Letta agent did not return metadata instructions")
 
 @app.get("/")
 async def root():
@@ -835,7 +745,7 @@ async def prepare_project_workspace():
     if not document or not document.get("project_spec"):
         raise HTTPException(status_code=404, detail="Project specification not found")
 
-    plan = await _generate_metadata_from_spec(document["project_spec"])
+    plan = _plan_workspace_with_letta(document["project_spec"])
     files_plan = plan.get("files") or []
     edges_plan_raw = plan.get("edges") or []
 
@@ -858,6 +768,15 @@ async def prepare_project_workspace():
         file_name = file_entry.get("file_name") or file_entry.get("path")
         if not file_name:
             continue
+        file_name = file_name.strip()
+        if not file_name:
+            continue
+        if "." not in os.path.basename(file_name):
+            file_name = f"{file_name}.txt"
+        normalized_path = os.path.normpath(file_name)
+        if normalized_path.startswith(".."):
+            continue
+        file_name = normalized_path.replace("\\", "/")
 
         node_id = file_entry.get("id") or file_name
         node_id = _slugify(str(node_id))
