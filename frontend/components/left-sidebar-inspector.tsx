@@ -1,15 +1,60 @@
 "use client"
 
-import { Code2, Settings } from "lucide-react"
+import { Code2, Settings, Save, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import type { FileNode, NodeMetadata } from "@/lib/api"
+import { useState, useEffect } from "react"
 
 interface InspectorProps {
   selectedNode: string | null
   nodes: FileNode[]
   metadata: Record<string, NodeMetadata>
+  onUpdateDescription?: (nodeId: string, description: string) => void
 }
 
-export function Inspector({ selectedNode, nodes, metadata }: InspectorProps) {
+export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }: InspectorProps) {
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [editingDescription, setEditingDescription] = useState("")
+
+  // Sync editingDescription with metadata when it changes (but not when editing)
+  useEffect(() => {
+    if (selectedNode && metadata[selectedNode] && !isEditingDescription) {
+      setEditingDescription(metadata[selectedNode].description)
+    }
+  }, [selectedNode, metadata, isEditingDescription])
+
+  const handleStartEdit = () => {
+    const nodeMeta = metadata[selectedNode!]
+    if (nodeMeta) {
+      setEditingDescription(nodeMeta.description)
+      setIsEditingDescription(true)
+    }
+  }
+
+  const handleSaveDescription = () => {
+    console.log('Inspector: handleSaveDescription called', { selectedNode, editingDescription, onUpdateDescription: !!onUpdateDescription })
+    if (onUpdateDescription && selectedNode) {
+      console.log('Inspector: calling onUpdateDescription with:', selectedNode, editingDescription)
+      onUpdateDescription(selectedNode, editingDescription)
+      setIsEditingDescription(false)
+    } else {
+      console.log('Inspector: onUpdateDescription or selectedNode missing')
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditingDescription(false)
+    setEditingDescription("")
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveDescription()
+    } else if (e.key === 'Escape') {
+      handleCancelEdit()
+    }
+  }
   if (!selectedNode) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
@@ -86,35 +131,86 @@ export function Inspector({ selectedNode, nodes, metadata }: InspectorProps) {
               <span className="text-sm text-foreground capitalize">{node?.status || "idle"}</span>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="neu-raised bg-card rounded-xl p-4">
-        <h3 className="font-semibold text-foreground mb-3 text-embossed">Metadata</h3>
-        {nodeMeta ? (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Description</span>
-              <span className="text-foreground text-right max-w-xs truncate">{nodeMeta.description}</span>
+          {/* Description Field */}
+          {nodeMeta && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Description</label>
+                {!isEditingDescription && onUpdateDescription && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleStartEdit}
+                    className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                  >
+                    <Settings className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+              
+              {isEditingDescription ? (
+                <div className="space-y-2">
+                  <Input
+                    value={editingDescription}
+                    onChange={(e) => setEditingDescription(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="text-xs neu-inset bg-background"
+                    placeholder="Enter description..."
+                    autoFocus
+                  />
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveDescription}
+                      className="h-6 px-2 neu-primary text-primary-foreground neu-hover"
+                    >
+                      <Save className="w-3 h-3" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleCancelEdit}
+                      className="h-6 px-2 neu-raised-sm neu-hover"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="neu-inset bg-background rounded px-3 py-2">
+                  <span className="text-sm text-foreground break-words">{nodeMeta.description}</span>
+                </div>
+              )}
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Position X</span>
-              <span className="text-foreground font-mono">{nodeMeta.x.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Position Y</span>
-              <span className="text-foreground font-mono">{nodeMeta.y.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Coordinates</span>
-              <span className="text-foreground font-mono">
-                ({nodeMeta.x.toFixed(0)}, {nodeMeta.y.toFixed(0)})
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground italic">No metadata available</div>
-        )}
+          )}
+
+          {/* Position Fields */}
+          {nodeMeta && (
+            <>
+              <div>
+                <label className="text-xs text-muted-foreground">Position X</label>
+                <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
+                  <span className="text-sm font-mono text-foreground">{nodeMeta.x.toFixed(2)}</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Position Y</label>
+                <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
+                  <span className="text-sm font-mono text-foreground">{nodeMeta.y.toFixed(2)}</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Coordinates</label>
+                <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
+                  <span className="text-sm font-mono text-foreground">
+                    ({nodeMeta.x.toFixed(0)}, {nodeMeta.y.toFixed(0)})
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {node?.content && (

@@ -9,7 +9,7 @@ import { X, FileText } from "lucide-react"
 interface FileNamingModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreateFile: (fileName: string, fileType: string) => void
+  onCreateFile: (fileName: string, fileType: string, description?: string) => void
 }
 
 const fileTypeMap: Record<string, string> = {
@@ -57,11 +57,13 @@ const fileTypeMap: Record<string, string> = {
 
 export function FileNamingModal({ isOpen, onClose, onCreateFile }: FileNamingModalProps) {
   const [fileName, setFileName] = useState("")
+  const [description, setDescription] = useState("")
   const [detectedType, setDetectedType] = useState("text")
 
   useEffect(() => {
     if (isOpen) {
       setFileName("")
+      setDescription("")
       setDetectedType("text")
     }
   }, [isOpen])
@@ -94,7 +96,7 @@ export function FileNamingModal({ isOpen, onClose, onCreateFile }: FileNamingMod
       finalType = 'text'
     }
     
-    onCreateFile(finalFileName, finalType)
+    onCreateFile(finalFileName, finalType, description.trim() || undefined)
     onClose()
   }
 
@@ -133,7 +135,7 @@ export function FileNamingModal({ isOpen, onClose, onCreateFile }: FileNamingMod
         <div className="space-y-4">
           <div>
             <Label htmlFor="fileName" className="text-sm font-medium text-foreground">
-              File Name
+              File Name *
             </Label>
             <Input
               id="fileName"
@@ -146,6 +148,23 @@ export function FileNamingModal({ isOpen, onClose, onCreateFile }: FileNamingMod
             />
             <p className="text-xs text-muted-foreground mt-1">
               Include extension for syntax highlighting (e.g., .py, .js, .ts)
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="description" className="text-sm font-medium text-foreground">
+              Description
+            </Label>
+            <Input
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g., Main application entry point, API configuration, etc."
+              className="mt-2 neu-inset bg-background"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Optional: Describe what this file does or contains
             </p>
           </div>
 

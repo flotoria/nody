@@ -1,16 +1,9 @@
 {
-  "test1": {
-    "id": "test1",
-    "type": "file",
-    "description": "Test file",
-    "x": 100.0,
-    "y": 200.0
-  },
   "1": {
     "id": "1",
     "type": "file",
-    "description": "File: main.py (python)",
-    "x": 477.0,
-    "y": 429.001953125
+    "description": "hey",
+    "x": 102.0,
+    "y": 279.001953125
   }
 }

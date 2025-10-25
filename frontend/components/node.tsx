@@ -123,17 +123,19 @@ export function Node({
         </div>
 
         <div className="space-y-2 mb-3">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
-              onMouseUp={(e) => {
-                if (onConnectionEnd) {
-                  onConnectionEnd(id, e)
-                }
-              }}
-            />
-            <span className="text-xs text-muted-foreground">Input</span>
-          </div>
+          {type !== "file" && (
+            <div className="flex items-center gap-2">
+              <div
+                className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
+                onMouseUp={(e) => {
+                  if (onConnectionEnd) {
+                    onConnectionEnd(id, e)
+                  }
+                }}
+              />
+              <span className="text-xs text-muted-foreground">Input</span>
+            </div>
+          )}
         </div>
 
         <div className="neu-inset bg-background rounded-lg p-2 mb-3">
@@ -147,18 +149,20 @@ export function Node({
         </div>
 
         <div className="space-y-2">
-          <div className="flex items-center justify-end gap-2">
-            <span className="text-xs text-muted-foreground">Output</span>
-            <div
-              className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                if (onConnectionStart) {
-                  onConnectionStart(id, e)
-                }
-              }}
-            />
-          </div>
+          {type !== "file" && (
+            <div className="flex items-center justify-end gap-2">
+              <span className="text-xs text-muted-foreground">Output</span>
+              <div
+                className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  if (onConnectionStart) {
+                    onConnectionStart(id, e)
+                  }
+                }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
