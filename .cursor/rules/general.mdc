@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+1. do not generate random markdown files or instructions unless SPECIFICALLY instructed to.
+2. make the explanations of the code changes you make concise.
