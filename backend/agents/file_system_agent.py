@@ -92,10 +92,10 @@ def create_file_system_agent():
                 "label": "persona",
                 "value": """I am a comprehensive file system assistant with extensive capabilities for file and directory operations. I can help you with:
 
-- Reading and writing files
-- Creating and deleting files and directories
-- Copying and moving files
-- Searching for files by pattern
+- Reading and writing node files
+- Creating and deleting node files and directories
+- Copying and moving node files
+- Searching for node files by pattern
 - Editing file content
 - Managing directory structures
 - Getting detailed file information
@@ -138,3 +138,71 @@ The backend uses Letta for AI-powered file operations and the frontend is a Next
     print(f"Agent has {len(tools)} custom file system tools plus built-in tools")
     
     return client, agent
+
+
+def interact_with_agent(client, agent_id):
+    """
+    Interactive loop to chat with the agent.
+    
+    Args:
+        client: Letta client instance
+        agent_id: ID of the agent to interact with
+    """
+    print("\n" + "="*60)
+    print("File System Agent Ready!")
+    print("="*60)
+    print("You can now ask me to help with file operations like:")
+    print("- 'Read the contents of main.py'")
+    print("- 'Create a new file called test.txt with some content'")
+    print("- 'List all node files in the current directory'")
+    print("- 'Search for all Python node files in the project'")
+    print("- 'Edit the main.py file to add a new function'")
+    print("\nType 'quit' to exit.")
+    print("="*60)
+    
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+            
+            if user_input.lower() in ['quit', 'exit', 'q']:
+                print("Goodbye!")
+                break
+            
+            if not user_input:
+                continue
+            
+            # Send message to agent
+            response = client.agents.messages.create(
+                agent_id=agent_id,
+                messages=[{"role": "user", "content": user_input}]
+            )
+            
+            # Process and display response
+            print("\nAgent:")
+            for msg in response.messages:
+                if msg.message_type == "assistant_message":
+                    print(msg.content)
+                elif msg.message_type == "reasoning_message":
+                    print(f"[Reasoning: {msg.reasoning}]")
+                elif msg.message_type == "tool_call_message":
+                    print(f"[Tool: {msg.tool_call.name}]")
+                elif msg.message_type == "tool_return_message":
+                    print(f"[Tool Result: {msg.tool_return}]")
+                    
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    try:
+        client, agent = create_file_system_agent()
+        interact_with_agent(client, agent.id)
+    except Exception as e:
+        print(f"Failed to create agent: {e}")
+        print("\nMake sure you have:")
+        print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
+        print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
+        print("3. Installed dependencies: pip install -e .")

@@ -1,6 +1,6 @@
 "use client"
 
-import { Code2, Settings, Save, X } from "lucide-react"
+import { Settings, Save, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { FileNode, NodeMetadata } from "@/lib/api"
@@ -20,9 +20,13 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
   // Sync editingDescription with metadata when it changes (but not when editing)
   useEffect(() => {
     if (selectedNode && metadata[selectedNode] && !isEditingDescription) {
-      setEditingDescription(metadata[selectedNode].description)
+      const newDescription = metadata[selectedNode].description
+      // Only update if the description has actually changed
+      if (newDescription !== editingDescription) {
+        setEditingDescription(newDescription)
+      }
     }
-  }, [selectedNode, metadata, isEditingDescription])
+  }, [selectedNode, metadata, isEditingDescription, editingDescription])
 
   const handleStartEdit = () => {
     const nodeMeta = metadata[selectedNode!]
@@ -70,6 +74,8 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
 
   const node = nodes.find((n) => n.id === selectedNode)
   const nodeMeta = metadata[selectedNode]
+
+  // Debug logging
 
   if (!node && !nodeMeta) {
     return (
@@ -133,57 +139,58 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
           </div>
 
           {/* Description Field */}
-          {nodeMeta && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-muted-foreground">Description</label>
-                {!isEditingDescription && onUpdateDescription && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-muted-foreground">Description</label>
+              {!isEditingDescription && onUpdateDescription && nodeMeta && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleStartEdit}
+                  className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                >
+                  <Settings className="w-3 h-3" />
+                </Button>
+              )}
+            </div>
+            
+            {isEditingDescription ? (
+              <div className="space-y-2">
+                <Input
+                  value={editingDescription}
+                  onChange={(e) => setEditingDescription(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="text-xs neu-inset bg-background"
+                  placeholder="Enter description..."
+                  autoFocus
+                />
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveDescription}
+                    className="h-6 px-2 neu-primary text-primary-foreground neu-hover"
+                  >
+                    <Save className="w-3 h-3" />
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={handleStartEdit}
-                    className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                    onClick={handleCancelEdit}
+                    className="h-6 px-2 neu-raised-sm neu-hover"
                   >
-                    <Settings className="w-3 h-3" />
+                    <X className="w-3 h-3" />
                   </Button>
-                )}
+                </div>
               </div>
-              
-              {isEditingDescription ? (
-                <div className="space-y-2">
-                  <Input
-                    value={editingDescription}
-                    onChange={(e) => setEditingDescription(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="text-xs neu-inset bg-background"
-                    placeholder="Enter description..."
-                    autoFocus
-                  />
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      onClick={handleSaveDescription}
-                      className="h-6 px-2 neu-primary text-primary-foreground neu-hover"
-                    >
-                      <Save className="w-3 h-3" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleCancelEdit}
-                      className="h-6 px-2 neu-raised-sm neu-hover"
-                    >
-                      <X className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="neu-inset bg-background rounded px-3 py-2">
-                  <span className="text-sm text-foreground break-words">{nodeMeta.description}</span>
-                </div>
-              )}
-            </div>
-          )}
+            ) : (
+              <div className="neu-inset bg-background rounded px-3 py-2">
+                <span className="text-sm text-foreground wrap-break-word">
+                  {(nodeMeta?.description ?? editingDescription) || "No description available"}
+                </span>
+              </div>
+            )}
+            
+          </div>
 
           {/* Position Fields */}
           {nodeMeta && (
@@ -213,21 +220,8 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
         </div>
       </div>
 
-      {node?.content && (
-        <div className="neu-raised bg-card rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Code2 className="w-4 h-4 text-primary" />
-            <h3 className="font-semibold text-foreground text-embossed">File Content Preview</h3>
-          </div>
-          <div className="neu-inset bg-background rounded p-3">
-            <pre className="text-xs text-muted-foreground font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-48">
-              {node.content.substring(0, 500)}
-              {node.content.length > 500 && "..."}
-            </pre>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
+
 

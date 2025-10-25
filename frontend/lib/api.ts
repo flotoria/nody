@@ -13,6 +13,20 @@ export interface FileNode {
   content?: string
   isExpanded?: boolean
   isModified?: boolean
+  parentFolder?: string
+}
+
+export interface FolderNode {
+  id: string
+  type: string
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  isExpanded: boolean
+  containedFiles: string[]
+  parentFolder?: string
 }
 
 export interface FileContent {
@@ -51,6 +65,78 @@ export interface ChatResponse {
     description: string
     filePath?: string
     fileType?: string
+  }>
+}
+
+export type OnboardingRole = "user" | "assistant" | "system"
+
+export interface OnboardingChatMessage {
+  role: OnboardingRole
+  content: string
+}
+
+export interface ProjectFeature {
+  name: string
+  description: string
+  acceptance_criteria: string[]
+}
+
+export interface TechnicalStack {
+  frontend: string
+  backend: string
+  api: string
+  database: string
+  infrastructure: string
+  third_party_services: string[]
+}
+
+export interface ProjectSpec {
+  title: string
+  summary: string
+  goals: string[]
+  target_users: string[]
+  primary_features: ProjectFeature[]
+  technical_stack: TechnicalStack
+  integrations: string[]
+  non_functional_requirements: string[]
+  constraints: string[]
+  success_metrics: string[]
+  open_questions: string[]
+}
+
+export interface OnboardingChatResult {
+  message: string
+  status: "collecting" | "ready"
+  missing_information: string[]
+  project_spec?: ProjectSpec | null
+  spec_saved: boolean
+}
+
+export interface ProjectSpecDocument {
+  exists: boolean
+  project_spec?: ProjectSpec | null
+  metadata?: {
+    session_id?: string
+    generated_at?: string
+    model?: string
+  } | null
+}
+
+export interface PrepareProjectResult {
+  message: string
+  files_created: number
+  metadata_nodes: number
+  edges_created: number
+  files: Array<{
+    id: string
+    label: string
+    file_name: string
+  }>
+  edges: Array<{
+    from: string
+    to: string
+    type?: string
+    description?: string
   }>
 }
 
@@ -155,10 +241,112 @@ export class FileAPI {
     return response.json()
   }
 
+  static async getEdges(): Promise<Array<{ from: string; to: string; type?: string; description?: string }>> {
+    const response = await fetch(`${API_BASE_URL}/edges`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch edges')
+    }
+    return response.json()
+  }
+
+  static async createEdge(edgeData: { from: string; to: string; type: string; description?: string }): Promise<{ message: string; edge: any }> {
+    const response = await fetch(`${API_BASE_URL}/edges`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(edgeData),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to create edge')
+    }
+    return response.json()
+  }
+
+  static async deleteEdge(from: string, to: string, type: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/edges?from_node=${from}&to_node=${to}&edge_type=${type}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to delete edge')
+    }
+    return response.json()
+  }
+
   static async getOutput(): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
     const response = await fetch(`${API_BASE_URL}/output`)
     if (!response.ok) {
       throw new Error('Failed to fetch output')
+    }
+    return response.json()
+  }
+
+  // ==================== FOLDER OPERATIONS ====================
+
+  static async getFolders(): Promise<FolderNode[]> {
+    const response = await fetch(`${API_BASE_URL}/folders`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch folders')
+    }
+    return response.json()
+  }
+
+  static async createFolder(name: string, x: number = 100, y: number = 100, width: number = 600, height: number = 400): Promise<FolderNode> {
+    const response = await fetch(`${API_BASE_URL}/folders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, x, y, width, height }),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to create folder')
+    }
+    return response.json()
+  }
+
+  static async updateFolder(folderId: string, updates: Partial<FolderNode>): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to update folder')
+    }
+    return response.json()
+  }
+
+  static async deleteFolder(folderId: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/folders/${folderId}`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to delete folder')
+    }
+    return response.json()
+  }
+
+  static async moveFileToFolder(fileId: string, folderId: string | null): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/folder?folder_id=${folderId || ''}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(errorData.detail || 'Failed to move file')
     }
     return response.json()
   }
@@ -172,6 +360,36 @@ export class FileAPI {
     }
   }
 
+  static async clearCanvas(): Promise<void> {
+    try {
+      // Clear all files
+      const files = await this.getFiles()
+      for (const file of files) {
+        await this.deleteFile(file.id)
+      }
+      
+      // Clear edges by setting empty array
+      await fetch(`${API_BASE_URL}/edges`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ edges: [] }),
+      })
+      
+      // Clear metadata by setting empty object
+      await fetch(`${API_BASE_URL}/metadata`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      })
+    } catch (error) {
+      console.error('Failed to clear canvas:', error)
+      throw new Error('Failed to clear canvas')
+    }
+  }
   static async generateFileCode(fileId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     const response = await fetch(`${API_BASE_URL}/files/${fileId}/generate`, {
       method: 'POST',
@@ -212,6 +430,47 @@ export class FileAPI {
     })
     if (!response.ok) {
       throw new Error('Failed to send chat message')
+    }
+    return response.json()
+  }
+}
+
+export class OnboardingAPI {
+  static async chat(sessionId: string, messages: OnboardingChatMessage[]): Promise<OnboardingChatResult> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        messages,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      throw new Error(`Failed to process onboarding chat: ${errorText}`)
+    }
+
+    return response.json()
+  }
+
+  static async getProjectSpec(): Promise<ProjectSpecDocument> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/spec`)
+    if (!response.ok) {
+      throw new Error('Failed to load project specification')
+    }
+    return response.json()
+  }
+
+  static async prepareProject(): Promise<PrepareProjectResult> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/prepare-project`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      throw new Error(`Failed to prepare project workspace: ${errorText}`)
     }
     return response.json()
   }

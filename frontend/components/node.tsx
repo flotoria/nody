@@ -77,30 +77,46 @@ export function Node({
           onDragStart(id, e)
         }
       }}
-      className={`absolute cursor-move transition-all rounded-xl ${
-        isSelected ? "neu-raised-xl ring-2 ring-primary scale-105" : "neu-raised-lg neu-hover neu-active"
+      className={`absolute transition-all duration-200 rounded-2xl ${
+        isDrawingMode 
+          ? isDrawingSource
+            ? "shadow-2xl ring-2 ring-green-500/50 scale-105 bg-gradient-to-br from-green-500/10 to-green-500/5 cursor-pointer"
+            : isDrawingTarget
+            ? "shadow-xl ring-2 ring-blue-500/50 scale-102 bg-gradient-to-br from-blue-500/10 to-blue-500/5 cursor-pointer"
+            : "shadow-lg ring-1 ring-primary/30 scale-101 bg-gradient-to-br from-card/95 to-card/80 cursor-pointer hover:shadow-xl hover:scale-102"
+          : isSelected 
+          ? "shadow-2xl ring-2 ring-primary/50 scale-105 bg-gradient-to-br from-card to-card/80 cursor-move" 
+          : "shadow-lg hover:shadow-xl hover:scale-102 bg-gradient-to-br from-card/95 to-card/80 hover:from-card to-card/90 cursor-move"
       }`}
       style={{
         left: x,
         top: y,
-        width: 192,
+        width: 280,
+        backdropFilter: "blur(10px)",
       }}
     >
-      <div className="bg-card rounded-xl p-3">
-        <div className="flex items-center justify-between mb-3 pb-3 border-b border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg neu-raised-sm bg-card flex items-center justify-center">
-              <Icon className="w-4 h-4 text-primary" />
+      <div className="bg-gradient-to-br from-card/90 to-card/70 rounded-2xl p-5 border border-border/20">
+        <div className="mb-4 pb-3 border-b border-border/30">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border border-primary/20 shadow-sm flex-shrink-0">
+                <Icon className="w-4 h-4 text-primary" />
+              </div>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="font-semibold text-sm text-foreground truncate" title={label}>{label}</span>
+                {fileType && (
+                  <span className="text-xs text-muted-foreground font-mono">{fileType}</span>
+                )}
+              </div>
+              {isModified && <span className="text-xs text-orange-400 animate-pulse flex-shrink-0">●</span>}
             </div>
-            <span className="font-semibold text-sm text-foreground text-soft-shadow">{label}</span>
-            {isModified && <span className="text-xs text-orange-400">●</span>}
           </div>
           <div className="flex items-center gap-1">
             {type === "file" && onExpand && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                className="h-6 w-6 p-0 rounded-md bg-background/50 hover:bg-background/80 border border-border/20 hover:border-border/40 transition-all"
                 onClick={(e) => {
                   e.stopPropagation()
                   onExpand(id)
@@ -133,50 +149,50 @@ export function Node({
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                className="h-6 w-6 p-0 rounded-md bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all"
                 onClick={(e) => {
                   e.stopPropagation()
                   onDelete(id)
                 }}
               >
-                <Trash2 className="w-3 h-3 text-destructive" />
+                <Trash2 className="w-3 h-3 text-red-400" />
               </Button>
             )}
           </div>
         </div>
 
-        <div className="space-y-2 mb-3">
+        <div className="space-y-3 mb-3">
           {type !== "file" && (
             <div className="flex items-center gap-2">
               <div
-                className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
+                className="w-4 h-4 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/40 cursor-pointer hover:scale-125 hover:border-primary/60 transition-all shadow-sm"
                 onMouseUp={(e) => {
                   if (onConnectionEnd) {
                     onConnectionEnd(id, e)
                   }
                 }}
               />
-              <span className="text-xs text-muted-foreground">Input</span>
+              <span className="text-xs text-muted-foreground font-medium">Input</span>
             </div>
           )}
         </div>
 
-        <div className="neu-inset bg-background rounded-lg p-2 mb-3">
+        <div className="bg-gradient-to-r from-background/60 to-background/40 rounded-xl p-3 mb-3 border border-border/10">
           <p className="text-xs text-muted-foreground font-mono">
-            {type === "ai" && "model: gpt-4"}
-            {type === "input" && "type: text"}
-            {type === "output" && "format: json"}
-            {type === "data" && "source: api"}
-            {type === "file" && `type: ${fileType || "text"}`}
+            {type === "ai" && "🤖 model: gpt-4"}
+            {type === "input" && "📥 type: text"}
+            {type === "output" && "📤 format: json"}
+            {type === "data" && "🗄️ source: api"}
+            {type === "file" && `📄 type: ${fileType || "text"}`}
           </p>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {type !== "file" && (
             <div className="flex items-center justify-end gap-2">
-              <span className="text-xs text-muted-foreground">Output</span>
+              <span className="text-xs text-muted-foreground font-medium">Output</span>
               <div
-                className="w-3 h-3 rounded-full neu-inset bg-background border border-primary/50 cursor-pointer hover:scale-125 transition-transform"
+                className="w-4 h-4 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/40 cursor-pointer hover:scale-125 hover:border-primary/60 transition-all shadow-sm"
                 onMouseDown={(e) => {
                   e.stopPropagation()
                   if (onConnectionStart) {

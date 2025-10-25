@@ -37,7 +37,13 @@ export default function NodeFlowPage() {
             level: msg.level as 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG',
             message: msg.message
           }))
-          setConsoleMessages(formattedMessages)
+          // Only update if messages have actually changed
+          setConsoleMessages(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(formattedMessages)) {
+              return formattedMessages
+            }
+            return prev
+          })
         }
         
         // Poll raw metadata.json directly
@@ -45,19 +51,29 @@ export default function NodeFlowPage() {
         const rawMetadata = JSON.parse(metadataResponse.content)
         const updatedFiles = await FileAPI.getFiles()
         
-        // Debug logging
-        console.log('Polling update - Raw metadata keys:', Object.keys(rawMetadata).length, 'Files:', updatedFiles.length)
-        console.log('Raw metadata:', rawMetadata)
+        // Always update metadata if it's empty or if data has changed
+        setMetadata(prev => {
+          const prevKeys = Object.keys(prev)
+          const newKeys = Object.keys(rawMetadata)
+          if (prevKeys.length === 0 || JSON.stringify(prev) !== JSON.stringify(rawMetadata)) {
+            return rawMetadata
+          }
+          return prev
+        })
         
-        setMetadata(rawMetadata)
-        setNodes(updatedFiles)
+        setNodes(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(updatedFiles)) {
+            return updatedFiles
+          }
+          return prev
+        })
       } catch (error) {
         console.error('Failed to fetch updates:', error)
       }
     }
 
-    // Poll every 500ms for updates (very aggressive)
-    const interval = setInterval(pollUpdates, 500)
+    // Poll every 2 seconds for updates
+    const interval = setInterval(pollUpdates, 2000)
 
     // Initial poll
     pollUpdates()
@@ -65,23 +81,15 @@ export default function NodeFlowPage() {
     return () => clearInterval(interval)
   }, [])
 
-  const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
-    setNodes(updatedNodes)
-    setMetadata(updatedMetadata)
-  }
 
   const handleUpdateDescription = async (nodeId: string, description: string) => {
-    console.log('Main page: handleUpdateDescription called', { nodeId, description })
     try {
-      console.log('Main page: calling FileAPI.updateFileDescription')
       await FileAPI.updateFileDescription(nodeId, description)
-      console.log('Main page: API call successful, refreshing metadata')
       // Refresh metadata after updating description
       const updatedMetadata = await FileAPI.getMetadata()
-      console.log('Main page: got updated metadata:', updatedMetadata)
       setMetadata(updatedMetadata)
     } catch (error) {
-      console.error('Main page: Failed to update description:', error)
+      console.error('Failed to update description:', error)
     }
   }
 
@@ -168,7 +176,7 @@ export default function NodeFlowPage() {
               <Canvas
                 selectedNode={selectedNode}
                 onSelectNode={setSelectedNode}
-                onDataChange={handleDataChange}
+                onMetadataUpdate={setMetadata}
               />
             </Panel>
 
@@ -191,3 +199,4 @@ export default function NodeFlowPage() {
     </div>
   )
 }
+

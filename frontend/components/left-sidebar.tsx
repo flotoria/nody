@@ -20,6 +20,7 @@ const nodeCategories = [
 const nodeTemplates = {
   files: [
     { label: "New File", type: "file", isSpecial: true },
+    { label: "New Folder", type: "folder", isSpecial: true },
   ],
   logic: [
     { label: "If/Else", type: "logic" },
@@ -74,7 +75,9 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
 
   const handleDragStart = (e: React.DragEvent, nodeData: { label: string; type: string }) => {
     e.dataTransfer.setData("application/json", JSON.stringify(nodeData))
-    e.dataTransfer.effectAllowed = "copy"
+    e.dataTransfer.setData("application/reactflow", nodeData.type)
+    e.dataTransfer.setData("text/plain", nodeData.type)
+    e.dataTransfer.effectAllowed = "move"
   }
 
   return (
@@ -142,3 +145,4 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
     </div>
   )
 }
+
