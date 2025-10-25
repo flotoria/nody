@@ -3,10 +3,13 @@
 import type React from "react"
 
 import { useState } from "react"
-import { Box, Database, Sparkles, Zap, Code, Settings, Code2 } from "lucide-react"
+import { Box, Database, Sparkles, Zap, Code, Settings, Code2, FileText } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { FileNode, NodeMetadata } from "@/lib/api"
+import { Inspector } from "@/components/left-sidebar-inspector"
 
 const nodeCategories = [
+  { id: "files", name: "Files", icon: FileText, color: "text-orange-400" },
   { id: "logic", name: "Logic", icon: Code, color: "text-blue-400" },
   { id: "data", name: "Data", icon: Database, color: "text-green-400" },
   { id: "ai", name: "AI Models", icon: Sparkles, color: "text-purple-400" },
@@ -15,6 +18,9 @@ const nodeCategories = [
 ]
 
 const nodeTemplates = {
+  files: [
+    { label: "New File", type: "file", isSpecial: true },
+  ],
   logic: [
     { label: "If/Else", type: "logic" },
     { label: "Loop", type: "logic" },
@@ -49,10 +55,13 @@ const nodeTemplates = {
 
 interface LeftSidebarProps {
   selectedNode: string | null
+  nodes: FileNode[]
+  metadata: Record<string, NodeMetadata>
+  onCreateFile?: (fileName: string, fileType: string) => void
 }
 
-export function LeftSidebar({ selectedNode }: LeftSidebarProps) {
-  const [selectedCategory, setSelectedCategory] = useState("logic")
+export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile }: LeftSidebarProps) {
+  const [selectedCategory, setSelectedCategory] = useState("files")
 
   const handleDragStart = (e: React.DragEvent, nodeData: { label: string; type: string }) => {
     e.dataTransfer.setData("application/json", JSON.stringify(nodeData))
@@ -116,106 +125,7 @@ export function LeftSidebar({ selectedNode }: LeftSidebarProps) {
         </TabsContent>
 
         <TabsContent value="inspector" className="flex-1 overflow-y-auto custom-scrollbar m-0">
-          {selectedNode ? (
-            <div className="p-4 space-y-4">
-              <div className="neu-raised bg-card rounded-xl p-4">
-                <h3 className="font-semibold text-foreground mb-3 text-embossed">Node Details</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Node ID</label>
-                    <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                      <span className="text-sm font-mono text-foreground">{selectedNode}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Type</label>
-                    <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                      <span className="text-sm text-foreground">AI Model</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Status</label>
-                    <div className="neu-inset bg-background rounded px-3 py-2 mt-1 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="text-sm text-foreground">Ready</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="neu-raised bg-card rounded-xl p-4">
-                <h3 className="font-semibold text-foreground mb-3 text-embossed">Parameters</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Model</label>
-                    <select className="w-full neu-inset bg-background rounded px-3 py-2 mt-1 text-sm text-foreground">
-                      <option>gpt-4</option>
-                      <option>gpt-3.5-turbo</option>
-                      <option>claude-3</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Temperature</label>
-                    <input type="range" min="0" max="1" step="0.1" defaultValue="0.7" className="w-full mt-2" />
-                    <span className="text-xs text-muted-foreground">0.7</span>
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Max Tokens</label>
-                    <input
-                      type="number"
-                      defaultValue="2048"
-                      className="w-full neu-inset bg-background rounded px-3 py-2 mt-1 text-sm text-foreground"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="neu-raised bg-card rounded-xl p-4">
-                <h3 className="font-semibold text-foreground mb-3 text-embossed">Metadata</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Created</span>
-                    <span className="text-foreground">2 hours ago</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Last Modified</span>
-                    <span className="text-foreground">5 minutes ago</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Executions</span>
-                    <span className="text-foreground">42</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="neu-raised bg-card rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Code2 className="w-4 h-4 text-primary" />
-                  <h3 className="font-semibold text-foreground text-embossed">Generated Code</h3>
-                </div>
-                <div className="neu-inset bg-background rounded p-3">
-                  <pre className="text-xs font-mono text-muted-foreground">
-                    {`async function process() {
-  const response = await ai({
-    model: 'gpt-4',
-    prompt: input
-  })
-  return response
-}`}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center p-8">
-              <div className="text-center">
-                <div className="w-16 h-16 rounded-full neu-raised bg-card mx-auto mb-4 flex items-center justify-center">
-                  <Settings className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <p className="text-sm text-muted-foreground">Select a node to view details</p>
-              </div>
-            </div>
-          )}
+          <Inspector selectedNode={selectedNode} nodes={nodes} metadata={metadata} />
         </TabsContent>
       </Tabs>
     </div>
