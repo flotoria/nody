@@ -3,8 +3,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactFlow, {
   Background,
-  addEdge,
   Connection,
+  ConnectionMode,
   Edge,
   MarkerType,
   Node,
@@ -13,10 +13,11 @@ import ReactFlow, {
   NodeProps,
   NodeTypes,
   OnEdgesDelete,
-  OnNodesDelete,
   OnSelectionChangeParams,
   useEdgesState,
   useNodesState,
+  Handle,
+  Position,
 } from "reactflow"
 import "reactflow/dist/style.css"
 import type React from "react"
@@ -38,6 +39,46 @@ const NODE_WIDTH = 280
 const NODE_HEIGHT = 180
 const FOLDER_HEADER_HEIGHT = 72
 const FOLDER_COLLAPSED_HEIGHT = 96
+const HANDLE_CLASS =
+  "h-3 w-3 rounded-full border-2 border-background bg-primary shadow-sm hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+const HANDLE_STYLE: React.CSSProperties = { width: 12, height: 12, zIndex: 10 }
+
+const NodeHandles = ({ isConnectable }: { isConnectable: boolean }) => (
+  <>
+    <Handle
+      type="target"
+      id="target-left"
+      position={Position.Left}
+      className={HANDLE_CLASS}
+      style={HANDLE_STYLE}
+      isConnectable={isConnectable}
+    />
+    <Handle
+      type="target"
+      id="target-top"
+      position={Position.Top}
+      className={HANDLE_CLASS}
+      style={HANDLE_STYLE}
+      isConnectable={isConnectable}
+    />
+    <Handle
+      type="source"
+      id="source-right"
+      position={Position.Right}
+      className={HANDLE_CLASS}
+      style={HANDLE_STYLE}
+      isConnectable={isConnectable}
+    />
+    <Handle
+      type="source"
+      id="source-bottom"
+      position={Position.Bottom}
+      className={HANDLE_CLASS}
+      style={HANDLE_STYLE}
+      isConnectable={isConnectable}
+    />
+  </>
+)
 
 interface CanvasProps {
   selectedNode: string | null
@@ -90,16 +131,18 @@ type EdgeRecord = {
 
 const isFileNodeData = (data: CanvasNodeData): data is FileNodeData => data.kind === "file"
 
-const FileNodeComponent = memo(({ id, data, selected }: NodeProps<FileNodeData>) => {
+const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps<FileNodeData>) => {
   const statusLabel = data.status.charAt(0).toUpperCase() + data.status.slice(1)
+  const hasExistingContent = Boolean(data.content && data.content.trim().length > 0)
 
   return (
     <div
-      className={`rounded-2xl border bg-card/90 shadow-lg transition-all ${
+      className={`relative rounded-2xl border bg-card/90 shadow-lg transition-all ${
         selected ? "ring-2 ring-primary/60 border-primary/40" : "border-border/40"
       }`}
       style={{ width: NODE_WIDTH }}
     >
+      <NodeHandles isConnectable={isConnectable} />
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -138,15 +181,17 @@ const FileNodeComponent = memo(({ id, data, selected }: NodeProps<FileNodeData>)
           >
             Open
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-primary"
-            onClick={() => data.onGenerate(id)}
-            disabled={data.generating}
-          >
-            Generate
-          </Button>
+          {!hasExistingContent && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-primary"
+              onClick={() => data.onGenerate(id)}
+              disabled={data.generating}
+            >
+              Generate
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -163,16 +208,17 @@ const FileNodeComponent = memo(({ id, data, selected }: NodeProps<FileNodeData>)
 
 FileNodeComponent.displayName = "FileNodeComponent"
 
-const FolderNodeComponent = memo(({ data, selected }: NodeProps<FolderNodeData>) => {
+const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<FolderNodeData>) => {
   const height = data.isExpanded ? data.height : FOLDER_COLLAPSED_HEIGHT
 
   return (
     <div
-      className={`rounded-2xl border-2 bg-primary/10 backdrop-blur-sm transition-all ${
+      className={`relative rounded-2xl border-2 bg-primary/10 backdrop-blur-sm transition-all ${
         selected ? "border-primary/60" : "border-primary/30"
       }`}
       style={{ width: data.width, height }}
     >
+      <NodeHandles isConnectable={isConnectable} />
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/15 px-4 py-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
@@ -201,14 +247,15 @@ const FolderNodeComponent = memo(({ data, selected }: NodeProps<FolderNodeData>)
 
 FolderNodeComponent.displayName = "FolderNodeComponent"
 
-const GenericNodeComponent = memo(({ data, selected }: NodeProps<GenericNodeData>) => {
+const GenericNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<GenericNodeData>) => {
   return (
     <div
-      className={`rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all ${
+      className={`relative rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all ${
         selected ? "ring-2 ring-primary/50 border-primary/30" : "border-border/30"
       }`}
       style={{ width: 220 }}
     >
+      <NodeHandles isConnectable={isConnectable} />
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{data.category}</p>
       <p className="mt-1 text-sm font-semibold text-foreground">{data.label}</p>
       <p className="mt-2 text-xs text-muted-foreground">
@@ -227,7 +274,7 @@ const nodeTypes = {
 } satisfies NodeTypes
 
 function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
-  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node<CanvasNodeData>>([])
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
   const [metadataRecords, setMetadataRecords] = useState<Record<string, NodeMetadata>>({})
@@ -252,35 +299,80 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
   useEffect(() => {
     let mounted = true
+    let pollInterval: NodeJS.Timeout | null = null
 
-    const loadInitialData = async () => {
-      setLoading(true)
+    const loadData = async () => {
       try {
-        const [files, metadata, folders, edges] = await Promise.all([
+        const [files, metadataResponse, folders, edges] = await Promise.all([
           FileAPI.getFiles(),
-          FileAPI.getMetadata(),
+          FileAPI.getMetadataRaw(),
           FileAPI.getFolders(),
           FileAPI.getEdges(),
         ])
         if (!mounted) return
-        setFileRecords(files)
-        setMetadataRecords(metadata)
-        setFolderRecords(folders)
-        setEdgeRecords(edges)
+        
+        // Parse raw metadata
+        const metadata = JSON.parse(metadataResponse.content)
+        
+        // Only update if data has actually changed
+        setFileRecords(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(files)) {
+            console.log('Canvas: Files updated from polling:', files)
+            return files
+          }
+          return prev
+        })
+        
+        setMetadataRecords(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(metadata)) {
+            console.log('Canvas: Metadata updated from polling:', metadata)
+            return metadata
+          }
+          return prev
+        })
+        
+        setFolderRecords(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(folders)) {
+            console.log('Canvas: Folders updated from polling:', folders)
+            return folders
+          }
+          return prev
+        })
+        
+        setEdgeRecords(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(edges)) {
+            console.log('Canvas: Edges updated from polling:', edges)
+            return edges
+          }
+          return prev
+        })
       } catch (error) {
         console.error("Failed to load canvas data:", error)
-        toast.error("Failed to load workspace data")
-      } finally {
         if (mounted) {
-          setLoading(false)
+          toast.error("Failed to load workspace data")
         }
       }
     }
 
+    const loadInitialData = async () => {
+      setLoading(true)
+      await loadData()
+      if (mounted) {
+        setLoading(false)
+      }
+    }
+
+    // Load initial data
     loadInitialData()
+
+    // Set up polling for real-time updates
+    pollInterval = setInterval(loadData, 500) // Poll every 500ms for faster updates
 
     return () => {
       mounted = false
+      if (pollInterval) {
+        clearInterval(pollInterval)
+      }
     }
   }, [])
 
@@ -295,6 +387,31 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       onMetadataUpdate(metadataRecords)
     }
   }, [metadataRecords, onMetadataUpdate])
+
+  // Force refresh when metadata changes significantly
+  useEffect(() => {
+    const refreshData = async () => {
+      try {
+        const [files, metadata, folders, edges] = await Promise.all([
+          FileAPI.getFiles(),
+          FileAPI.getMetadata(),
+          FileAPI.getFolders(),
+          FileAPI.getEdges(),
+        ])
+        setFileRecords(files)
+        setMetadataRecords(metadata)
+        setFolderRecords(folders)
+        setEdgeRecords(edges)
+      } catch (error) {
+        console.error("Failed to refresh data:", error)
+      }
+    }
+    
+    // Refresh when metadata records change
+    if (Object.keys(metadataRecords).length > 0) {
+      refreshData()
+    }
+  }, [Object.keys(metadataRecords).length])
 
   const openEditor = useCallback((id: string) => setEditorNodeId(id), [])
 
@@ -433,6 +550,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         style: { width: NODE_WIDTH, zIndex: 2 },
         draggable: true,
         selectable: true,
+        connectable: true,
       })
     }
 
@@ -458,6 +576,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         draggable: true,
         selectable: true,
         style: { zIndex: 1 },
+        connectable: true,
       })
     }
 
@@ -511,15 +630,30 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       if (!connection.source || !connection.target || connection.source === connection.target) {
         return
       }
+      const duplicateEdge = edgeRecords.some(
+        (edge) => edge.from === connection.source && edge.to === connection.target,
+      )
+      if (duplicateEdge) {
+        toast("Those nodes are already connected")
+        return
+      }
       setPendingEdge({ from: connection.source, to: connection.target })
     },
-    [],
+    [edgeRecords],
   )
 
   const handleEdgeCreate = useCallback(
     async (edgeData: { type: string; description?: string }) => {
       if (!pendingEdge) return
       try {
+        const duplicateEdge = edgeRecords.some(
+          (edge) => edge.from === pendingEdge.from && edge.to === pendingEdge.to,
+        )
+        if (duplicateEdge) {
+          toast("Those nodes are already connected")
+          return
+        }
+
         await FileAPI.createEdge({
           from: pendingEdge.from,
           to: pendingEdge.to,
@@ -536,7 +670,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         setPendingEdge(null)
       }
     },
-    [pendingEdge],
+    [edgeRecords, pendingEdge],
   )
 
   const handleEdgesDelete: OnEdgesDelete = useCallback(async (edges) => {
@@ -554,7 +688,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   }, [])
 
   const handleNodesDelete = useCallback(
-    async (nodes) => {
+    async (nodes: any[]) => {
       for (const node of nodes) {
         if (node.type === "fileNode") {
           await handleFileDelete(node.id)
@@ -779,6 +913,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         },
         draggable: true,
         selectable: true,
+        connectable: true,
         style: { zIndex: 2 },
       }
 
@@ -820,8 +955,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             nodeTypes={nodeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             className="bg-background"
+            connectionMode={ConnectionMode.Loose}
+            connectOnClick
           >
-            <Background variant="dots" gap={20} lineWidth={1} color="var(--border)" />
+            <Background gap={20} lineWidth={1} color="var(--border)" />
           </ReactFlow>
         </div>
       )}

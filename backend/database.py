@@ -9,6 +9,7 @@ from pathlib import Path
 
 from config import CANVAS_DIR, METADATA_FILE, OUTPUT_FILE, MAX_OUTPUT_MESSAGES
 from models import FileNode, NodeMetadata
+from utils import infer_file_type_from_name
 
 
 class FileDatabase:
@@ -21,53 +22,145 @@ class FileDatabase:
     def _load_existing_files(self):
         """Load existing node files from filesystem and metadata."""
         metadata = self.load_metadata()
-        
+        self.refresh_files_from_metadata(metadata)
+
+    def _resolve_file_path(self, file_name: str, node_meta: Dict[str, Any]) -> Path:
+        """Resolve a file path relative to the canvas directory, creating it with a placeholder if missing."""
+        file_path = CANVAS_DIR / file_name
+        if file_path.exists():
+            return file_path
+
+        # Search for existing file by basename
+        for root, _, files in os.walk(CANVAS_DIR):
+            if os.path.basename(file_name) in files:
+                return Path(root) / os.path.basename(file_name)
+
+        # Ensure directory exists and create empty file
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        placeholder = self._generate_placeholder_content(file_path, node_meta)
+        file_path.write_text(placeholder, encoding="utf-8")
+        print(f"Created placeholder file: {file_path}")
+        return file_path
+
+    def _generate_placeholder_content(self, file_path: Path, node_meta: Dict[str, Any]) -> str:
+        """Generate starter content for newly created files."""
+        description = node_meta.get("description", "").strip()
+        if not description:
+            description = f"TODO: Implement node '{node_meta.get('id', file_path.stem)}'."
+
+        ext = file_path.suffix.lower()
+        node_id = node_meta.get("id", file_path.stem)
+
+        if ext in {".json"}:
+            return json.dumps(
+                {
+                    "placeholder": True,
+                    "node_id": node_id,
+                    "description": description,
+                },
+                indent=2,
+            ) + "\n"
+
+        if ext in {".md", ".markdown"}:
+            return f"# {node_id}\n\n{description}\n"
+
+        if ext in {".py"}:
+            lines = '\n'.join(description.splitlines())
+            return (
+                f'"""{lines}"""\n\n'
+                "def main():\n"
+                f"    # TODO: implement {node_id}\n"
+                "    pass\n\n"
+                "if __name__ == \"__main__\":\n"
+                "    main()\n"
+            )
+
+        if ext in {".ts", ".tsx", ".js", ".jsx"}:
+            comment = "\n".join(f" * {line}" for line in description.splitlines())
+            export_name = "".join(part.capitalize() for part in node_id.split("_"))
+            return (
+                "/**\n"
+                f"{comment}\n"
+                " */\n"
+                f"export const {export_name or 'TodoComponent'} = () => {{\n"
+                f"  // TODO: implement {node_id}\n"
+                "  return null\n"
+                "}\n"
+            )
+
+        if ext in {".html"}:
+            return (
+                "<!--\n"
+                f"{description}\n"
+                "-->\n"
+                "<div>\n"
+                f"  <!-- TODO: implement {node_id} -->\n"
+                "</div>\n"
+            )
+
+        # Default to hash-style comments
+        comment_lines = "\n".join(f"# {line}" for line in description.splitlines())
+        return f"{comment_lines}\n\n# TODO: implement {node_id}\n"
+
+    def _create_or_update_file_node(self, node_id: str, node_meta: Dict[str, Any]):
+        """Ensure an in-memory FileNode exists for metadata entry."""
+        file_name = node_meta.get("fileName") or f"{node_id}.txt"
+        if "fileName" not in node_meta:
+            node_meta["fileName"] = file_name
+
+        file_path = self._resolve_file_path(file_name, node_meta)
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            content = ""
+        else:
+            if not content.strip():
+                placeholder = self._generate_placeholder_content(file_path, node_meta)
+                file_path.write_text(placeholder, encoding="utf-8")
+                content = placeholder
+
+        file_type = infer_file_type_from_name(file_path.name)
+        existing = self.files_db.get(node_id)
+
+        if existing:
+            existing.label = file_path.name
+            existing.filePath = file_name
+            existing.fileType = file_type
+            existing.content = content
+            existing.x = node_meta.get("x", existing.x)
+            existing.y = node_meta.get("y", existing.y)
+            existing.parentFolder = node_meta.get("parentFolder")
+        else:
+            self.files_db[node_id] = FileNode(
+                id=node_id,
+                label=file_path.name,
+                type="file",
+                filePath=file_name,
+                fileType=file_type,
+                content=content,
+                x=node_meta.get("x", 0),
+                y=node_meta.get("y", 0),
+                status="idle",
+                isExpanded=False,
+                isModified=False,
+                parentFolder=node_meta.get("parentFolder"),
+            )
+            print(f"Loaded metadata node into memory: {node_id} -> {file_path}")
+
+    def refresh_files_from_metadata(self, metadata: Optional[Dict[str, Any]] = None):
+        """Synchronize in-memory file records with metadata definitions."""
+        if metadata is None:
+            metadata = self.load_metadata()
+
+        active_ids = set()
         for node_id, node_meta in metadata.items():
             if node_meta.get("type") == "file":
-                # Use the fileName from metadata to get the correct file path
-                file_name = node_meta.get("fileName")
-                if not file_name:
-                    print(f"No fileName found for node {node_id}, skipping")
-                    continue
-                
-                # Construct the full file path
-                file_path = CANVAS_DIR / file_name
-                
-                if file_path.exists():
-                    actual_file_path = file_path
-                else:
-                    print(f"File not found: {file_path}")
-                    continue
-                
-                if actual_file_path and actual_file_path.exists():
-                    # Read file content
-                    try:
-                        content = actual_file_path.read_text(encoding='utf-8')
-                    except:
-                        content = ""
-                    
-                    # Determine file type from extension
-                    from utils import infer_file_type_from_name
-                    file_type = infer_file_type_from_name(actual_file_path.name)
-                    
-                    # Create FileNode object
-                    file_node = FileNode(
-                        id=node_id,
-                        label=actual_file_path.name,
-                        type="file",
-                        filePath=file_name,  # Use the fileName from metadata
-                        fileType=file_type,
-                        content=content,
-                        x=node_meta.get("x", 0),
-                        y=node_meta.get("y", 0),
-                        status="idle",
-                        isExpanded=False,
-                        isModified=False,
-                        parentFolder=node_meta.get("parentFolder")
-                    )
-                    
-                    self.files_db[node_id] = file_node
-                    print(f"Loaded file: {node_id} -> {actual_file_path}")
+                active_ids.add(node_id)
+                self._create_or_update_file_node(node_id, node_meta)
+
+        # Remove file nodes that no longer exist in metadata
+        for stale_id in set(self.files_db.keys()) - active_ids:
+            del self.files_db[stale_id]
     
     def load_metadata(self) -> Dict[str, Any]:
         """Load metadata from JSON file."""
@@ -81,6 +174,7 @@ class FileDatabase:
     def save_metadata(self, metadata: Dict[str, Any]):
         """Save metadata to JSON file."""
         try:
+            self.refresh_files_from_metadata(metadata)
             METADATA_FILE.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error saving metadata: {e}")
@@ -109,6 +203,7 @@ class FileDatabase:
     
     def get_all_files(self) -> List[FileNode]:
         """Get all file nodes."""
+        self.refresh_files_from_metadata()
         return list(self.files_db.values())
     
     def get_file(self, file_id: str) -> Optional[FileNode]:

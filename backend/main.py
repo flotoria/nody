@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
@@ -342,10 +342,22 @@ async def move_file_to_folder(file_id: str, folder_id: Optional[str] = None):
 async def get_metadata_raw():
     """Get raw metadata.json content"""
     try:
+        # Ensure the file exists
+        if not METADATA_FILE.exists():
+            # Create empty metadata file
+            METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(METADATA_FILE, 'w', encoding='utf-8') as f:
+                f.write('{}')
+        
         with open(METADATA_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
+        
+        # Add timestamp for debugging
+        print(f"Metadata file read at {datetime.now()}, size: {len(content)} chars")
+        
         return {"content": content}
     except Exception as e:
+        print(f"Error reading metadata file: {e}")
         return {"content": "{}", "error": str(e)}
 
 @app.get("/metadata")
@@ -358,7 +370,9 @@ async def get_metadata():
 async def update_metadata(metadata: dict):
     """Update all node metadata"""
     try:
+        print(f"Metadata update called at {datetime.now()}, nodes: {len(metadata)}")
         file_db.save_metadata(metadata)
+        print(f"Metadata saved successfully, file size: {METADATA_FILE.stat().st_size if METADATA_FILE.exists() else 0} bytes")
         return {"message": "Metadata updated successfully"}
     except Exception as e:
         print(f"Error updating metadata: {e}")
