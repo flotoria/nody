@@ -99,6 +99,7 @@ type FileNodeData = {
   isModified?: boolean
   parentFolder?: string | null
   generating: boolean
+  description?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
   onDelete: (id: string) => void
@@ -181,7 +182,7 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
           >
             Open
           </Button>
-          {!hasExistingContent && (
+          {!hasExistingContent && data.description && data.description.trim() && (
             <Button
               size="sm"
               variant="ghost"
@@ -543,6 +544,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isModified: record.isModified,
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
+          description: meta?.description,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
           onDelete: handleFileDelete,

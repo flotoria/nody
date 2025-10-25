@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
@@ -154,6 +154,33 @@ async def delete_file(file_id: str):
         return {"message": "File deleted successfully"}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/canvas/clear")
+async def clear_canvas():
+    """Clear the entire canvas - all files, metadata, and edges"""
+    try:
+        # Clear edges
+        EDGES_FILE.write_text(json.dumps({"edges": []}, indent=2), encoding='utf-8')
+        
+        # Clear metadata
+        METADATA_FILE.write_text(json.dumps({}, indent=2), encoding='utf-8')
+        
+        # Clear files from filesystem
+        import shutil
+        if CANVAS_DIR.exists():
+            shutil.rmtree(CANVAS_DIR)
+            CANVAS_DIR.mkdir(exist_ok=True)
+        
+        # Clear in-memory database
+        file_db.files_db.clear()
+        
+        # Clear output
+        output_logger.clear_output()
+        
+        return {"message": "Canvas cleared successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error clearing canvas: {str(e)}")
 
 
 @app.put("/files/{file_id}/position")
