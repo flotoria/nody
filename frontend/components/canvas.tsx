@@ -9,6 +9,7 @@ import { Node } from "@/components/node"
 import { CodeEditor } from "@/components/code-editor"
 import { FileNamingModal } from "@/components/file-naming-modal"
 import { FileAPI, FileNode, NodeMetadata } from "@/lib/api"
+import { toast } from "sonner"
 
 interface CanvasProps {
   selectedNode: string | null
@@ -265,32 +266,39 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
   }, [])
 
   const handleFileCreate = useCallback(async (fileName: string, fileType: string, description?: string) => {
-    try {
-      const newFile = await FileAPI.createFile({
-        filePath: fileName,
-        fileType: fileType,
-        content: "",
-        description: description
+    const result = await FileAPI.createFile({
+      filePath: fileName,
+      fileType: fileType,
+      content: "",
+      description: description
+    })
+    
+    if (!result.success) {
+      // Show toast for error
+      toast.error('Failed to create file', {
+        description: result.error || `File "${fileName}" already exists`,
+        duration: 2000,
       })
-      
-      // Update the position if we have a pending drop
-      if (pendingFileDrop) {
-        await FileAPI.updateFilePosition(newFile.id, pendingFileDrop.x, pendingFileDrop.y)
-        newFile.x = pendingFileDrop.x
-        newFile.y = pendingFileDrop.y
-      }
-      
-      setNodes((prev) => [...prev, newFile as NodeData])
-      
-      // Refresh metadata after creating file
-      const updatedMetadata = await FileAPI.getMetadata()
-      setMetadata(updatedMetadata)
-      
-      setShowFileModal(false)
-      setPendingFileDrop(null)
-    } catch (error) {
-      console.error('Failed to create file:', error)
+      return
     }
+    
+    const newFile = result.data!
+    
+    // Update the position if we have a pending drop
+    if (pendingFileDrop) {
+      await FileAPI.updateFilePosition(newFile.id, pendingFileDrop.x, pendingFileDrop.y)
+      newFile.x = pendingFileDrop.x
+      newFile.y = pendingFileDrop.y
+    }
+    
+    setNodes((prev) => [...prev, newFile as NodeData])
+    
+    // Refresh metadata after creating file
+    const updatedMetadata = await FileAPI.getMetadata()
+    setMetadata(updatedMetadata)
+    
+    setShowFileModal(false)
+    setPendingFileDrop(null)
   }, [pendingFileDrop])
 
   const handleDrop = useCallback(
