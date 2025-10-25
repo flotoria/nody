@@ -279,9 +279,10 @@ export class FileAPI {
   }
 
   static async getOutput(): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
-    const response = await fetch(`${API_BASE_URL}/output`)
-    if (!response.ok) {
-      throw new Error('Failed to fetch output')
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+    const response = await fetch(`${baseUrl}/output`).catch(() => null)
+    if (!response || !response.ok) {
+      return { messages: [] }
     }
     return response.json()
   }
