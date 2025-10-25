@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR
 from models import FileNode
-from agent import create_file_system_agent
+from agents.file_system_agent import create_file_system_agent
 from utils import extract_structured_payload, sanitize_plan, position_for_index, infer_file_type_from_name
 from database import file_db, output_logger
 

@@ -7,7 +7,7 @@ import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Home } from "lucide-react"
+import { Home, Sparkles } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
@@ -23,11 +23,13 @@ export default function NodeFlowPage() {
   const [nodes, setNodes] = useState<FileNode[]>([])
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
+  const [isGenerating, setIsGenerating] = useState(false)
 
-  // Poll for real-time output messages
+  // Poll for real-time output messages and metadata updates
   useEffect(() => {
-    const pollOutput = async () => {
+    const pollUpdates = async () => {
       try {
+        // Poll output messages
         const output = await FileAPI.getOutput()
         if (output.messages && output.messages.length > 0) {
           const formattedMessages = output.messages.map(msg => ({
@@ -35,39 +37,85 @@ export default function NodeFlowPage() {
             level: msg.level as 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG',
             message: msg.message
           }))
-          setConsoleMessages(formattedMessages)
+          // Only update if messages have actually changed
+          setConsoleMessages(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(formattedMessages)) {
+              return formattedMessages
+            }
+            return prev
+          })
         }
+        
+        // Poll raw metadata.json directly
+        const metadataResponse = await FileAPI.getMetadataRaw()
+        const rawMetadata = JSON.parse(metadataResponse.content)
+        const updatedFiles = await FileAPI.getFiles()
+        
+        // Always update metadata if it's empty or if data has changed
+        setMetadata(prev => {
+          const prevKeys = Object.keys(prev)
+          const newKeys = Object.keys(rawMetadata)
+          if (prevKeys.length === 0 || JSON.stringify(prev) !== JSON.stringify(rawMetadata)) {
+            return rawMetadata
+          }
+          return prev
+        })
+        
+        setNodes(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(updatedFiles)) {
+            return updatedFiles
+          }
+          return prev
+        })
       } catch (error) {
-        console.error('Failed to fetch output:', error)
+        console.error('Failed to fetch updates:', error)
       }
     }
 
-    // Poll every 2 seconds for output updates
-    const interval = setInterval(pollOutput, 2000)
+    // Poll every 2 seconds for updates
+    const interval = setInterval(pollUpdates, 2000)
 
     // Initial poll
-    pollOutput()
+    pollUpdates()
 
     return () => clearInterval(interval)
   }, [])
 
-  const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
-    setNodes(updatedNodes)
-    setMetadata(updatedMetadata)
-  }
 
   const handleUpdateDescription = async (nodeId: string, description: string) => {
-    console.log('Main page: handleUpdateDescription called', { nodeId, description })
     try {
-      console.log('Main page: calling FileAPI.updateFileDescription')
       await FileAPI.updateFileDescription(nodeId, description)
-      console.log('Main page: API call successful, refreshing metadata')
       // Refresh metadata after updating description
       const updatedMetadata = await FileAPI.getMetadata()
-      console.log('Main page: got updated metadata:', updatedMetadata)
       setMetadata(updatedMetadata)
     } catch (error) {
-      console.error('Main page: Failed to update description:', error)
+      console.error('Failed to update description:', error)
+    }
+  }
+
+  const handleToggleRun = async () => {
+    if (isGenerating) return
+    
+    setIsGenerating(true)
+    try {
+      console.log('Generating files...')
+      await FileAPI.runProject()
+      console.log('Generation completed')
+    } catch (error) {
+      console.error('Failed to generate files:', error)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const handleMetadataUpdate = async () => {
+    try {
+      const updatedMetadata = await FileAPI.getMetadata()
+      setMetadata(updatedMetadata)
+      const updatedFiles = await FileAPI.getFiles()
+      setNodes(updatedFiles)
+    } catch (error) {
+      console.error('Failed to update metadata:', error)
     }
   }
 
@@ -92,12 +140,32 @@ export default function NodeFlowPage() {
                   <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
                   <span className="text-sm text-muted-foreground">Visual Development Environment</span>
                 </div>
-                <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
-                  <Link href="/onboarding">
-                    <Home className="w-4 h-4 mr-2" />
-                    Home
-                  </Link>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={handleToggleRun}
+                    disabled={isGenerating}
+                    className="bg-purple-600 hover:bg-purple-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                    size="sm"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Generate All
+                      </>
+                    )}
+                  </Button>
+                  <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
+                    <Link href="/onboarding">
+                      <Home className="w-4 h-4 mr-2" />
+                      Home
+                    </Link>
+                  </Button>
+                </div>
               </header>
             </Panel>
 
@@ -108,7 +176,7 @@ export default function NodeFlowPage() {
               <Canvas
                 selectedNode={selectedNode}
                 onSelectNode={setSelectedNode}
-                onDataChange={handleDataChange}
+                onMetadataUpdate={setMetadata}
               />
             </Panel>
 
@@ -125,9 +193,10 @@ export default function NodeFlowPage() {
 
         {/* Right Sidebar */}
         <Panel defaultSize={20} minSize={15} maxSize={35} className="min-w-0">
-          <RightSidebar />
+          <RightSidebar onMetadataUpdate={handleMetadataUpdate} />
         </Panel>
       </PanelGroup>
     </div>
   )
 }
+

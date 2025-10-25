@@ -12,7 +12,11 @@ interface Message {
   timestamp: Date
 }
 
-export function RightSidebar() {
+interface RightSidebarProps {
+  onMetadataUpdate?: () => void
+}
+
+export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -85,10 +89,18 @@ export function RightSidebar() {
       
       setMessages((prev) => [...prev, aiMessage])
       
-      // TODO: Handle generated_nodes if present
+      // Handle generated_nodes if present
       if (response.generated_nodes && response.generated_nodes.length > 0) {
         console.log("Generated nodes:", response.generated_nodes)
-        // You can trigger node creation here
+        // Trigger metadata update to refresh the canvas immediately
+        if (onMetadataUpdate) {
+          // Immediate update
+          onMetadataUpdate()
+          // Also update after a short delay to ensure backend has processed
+          setTimeout(() => {
+            onMetadataUpdate()
+          }, 500)
+        }
       }
     } catch (error) {
       console.error("Failed to send message:", error)

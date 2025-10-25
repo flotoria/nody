@@ -19,6 +19,8 @@ import ReactFlow, {
   useNodesState,
 } from "reactflow"
 import "reactflow/dist/style.css"
+import type React from "react"
+import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CodeEditor } from "@/components/code-editor"
 import { FileNamingModal } from "@/components/file-naming-modal"
@@ -42,6 +44,7 @@ interface CanvasProps {
   onSelectNode: (id: string | null) => void
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
   onDataChange?: (nodes: ApiFileNode[], metadata: Record<string, NodeMetadata>) => void
+  onMetadataUpdate?: (metadata: Record<string, NodeMetadata>) => void
 }
 
 type FileNodeData = {
@@ -223,7 +226,7 @@ const nodeTypes = {
   genericNode: GenericNodeComponent,
 } satisfies NodeTypes
 
-function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) {
+function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<Node<CanvasNodeData>>([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
@@ -237,6 +240,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
   const [pendingFilePosition, setPendingFilePosition] = useState<{ x: number; y: number } | null>(null)
   const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
+  const [expandedNode, setExpandedNode] = useState<string | null>(null)
+  const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const refreshInFlight = useRef(false)
   const { screenToFlowPosition } = useReactFlow()
@@ -284,6 +289,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
       onDataChange(fileRecords, metadataRecords)
     }
   }, [fileRecords, metadataRecords, onDataChange])
+
+  useEffect(() => {
+    if (onMetadataUpdate) {
+      onMetadataUpdate(metadataRecords)
+    }
+  }, [metadataRecords, onMetadataUpdate])
 
   const openEditor = useCallback((id: string) => setEditorNodeId(id), [])
 
@@ -413,7 +424,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
           status: record.status,
           content: record.content,
           isModified: record.isModified,
-          parentFolder: meta?.parentFolder ?? record.parentFolder ?? null,
+          parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
@@ -542,7 +553,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
     setEdgeRecords(updatedEdges)
   }, [])
 
-  const handleNodesDelete: OnNodesDelete<Node<CanvasNodeData>> = useCallback(
+  const handleNodesDelete = useCallback(
     async (nodes) => {
       for (const node of nodes) {
         if (node.type === "fileNode") {
@@ -615,7 +626,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
         })
 
         const targetFolderId = containingFolder ? containingFolder.id : null
-        const currentParent = metadataRecords[fileId]?.parentFolder ?? null
+        const currentParent = null // parentFolder is not in metadata
 
         if (currentParent !== targetFolderId) {
           try {
@@ -689,6 +700,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
     event.dataTransfer.dropEffect = "move"
   }, [])
 
+  const handleNodeExpand = useCallback((nodeId: string) => {
+    setExpandedNode(expandedNode === nodeId ? null : nodeId)
+  }, [expandedNode])
   const handleDrop = useCallback(
     async (event: React.DragEvent) => {
       event.preventDefault()
@@ -775,16 +789,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
     [onSelectNode, openCreateFileModal, screenToFlowPosition],
   )
 
+
   return (
     <div className="relative h-full w-full">
-      <div className="pointer-events-none absolute inset-0 z-20 flex items-start justify-end p-4">
-        <div className="pointer-events-auto flex gap-2">
-          <Button size="sm" variant="default" className="neu-primary" onClick={openCreateFileModal}>
-            New File
-          </Button>
-        </div>
-      </div>
-
       {loading ? (
         <div className="flex h-full w-full items-center justify-center">
           <div className="text-center">
@@ -804,7 +811,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
             onConnect={handleConnect}
             onNodeDragStop={handleNodeDragStop}
             onSelectionChange={handleSelectionChange}
-            onPaneClick={handlePaneClick}            onDrop={handleDrop}
+            onPaneClick={handlePaneClick}
+            onDrop={handleDrop}
             onDragOver={handleDragOver}
             fitView
             minZoom={0.2}
@@ -813,7 +821,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
             defaultEdgeOptions={defaultEdgeOptions}
             className="bg-background"
           >
-            <Background variant="lines" gap={20} lineWidth={1} color="var(--border)" />          </ReactFlow>
+            <Background variant="dots" gap={20} lineWidth={1} color="var(--border)" />
+          </ReactFlow>
         </div>
       )}
 
@@ -828,6 +837,34 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange }: CanvasProps) 
             onSave={(content) => handleFileSave(record.id, content)}
             onClose={() => setEditorNodeId(null)}
             isModified={record.isModified}
+          />
+        )
+      })()}
+
+
+      {/* File Naming Modal */}
+      <FileNamingModal
+        isOpen={showFileModal}
+        onClose={() => {
+          setShowFileModal(false)
+          setPendingFileDrop(null)
+        }}
+        onCreateFile={handleFileCreate}
+      />
+
+      {/* Code Editor Modal */}
+      {expandedNode && (() => {
+        const node = fileRecords.find(n => n.id === expandedNode)
+        if (!node) return null
+        
+        return (
+          <CodeEditor
+            content={node.content || ''}
+            fileType={node.fileType || 'text'}
+            fileName={node.filePath || node.label}
+            onSave={(content) => handleFileSave(node.id, content)}
+            onClose={() => setExpandedNode(null)}
+            isModified={node.isModified}
           />
         )
       })()}

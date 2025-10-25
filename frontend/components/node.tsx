@@ -27,10 +27,6 @@ interface NodeProps {
   onExpand?: (nodeId: string) => void
   onGenerateCode?: (nodeId: string) => void
   isGenerating?: boolean
-  // Drawing mode props
-  isDrawingMode?: boolean
-  isDrawingSource?: boolean
-  isDrawingTarget?: boolean
 }
 
 const nodeIcons = {
@@ -70,9 +66,6 @@ export function Node({
   onExpand,
   onGenerateCode,
   isGenerating,
-  isDrawingMode = false,
-  isDrawingSource = false,
-  isDrawingTarget = false,
 }: NodeProps) {
   const Icon = nodeIcons[type as keyof typeof nodeIcons] || ArrowRight
 
@@ -118,7 +111,7 @@ export function Node({
               {isModified && <span className="text-xs text-orange-400 animate-pulse flex-shrink-0">●</span>}
             </div>
           </div>
-          <div className="flex items-center justify-end gap-1.5">
+          <div className="flex items-center gap-1">
             {type === "file" && onExpand && (
               <Button
                 size="sm"
@@ -132,11 +125,11 @@ export function Node({
                 {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </Button>
             )}
-            {type === "file" && onGenerateCode && (!content || content.trim() === "") && (
+            {type === "file" && onGenerateCode && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 w-6 p-0 rounded-md bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/40 transition-all"
+                className="h-6 w-6 p-0 neu-raised-sm neu-hover"
                 onClick={(e) => {
                   e.stopPropagation()
                   onGenerateCode(id)
@@ -151,7 +144,7 @@ export function Node({
                 )}
               </Button>
             )}
-            <div className={`w-3 h-3 rounded-full ${statusColors[status]} shadow-sm`} />
+            <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />
             {isSelected && onDelete && (
               <Button
                 size="sm"

@@ -5,12 +5,20 @@ import json
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
+import os
+import json
+from datetime import datetime
+from dotenv import load_dotenv
+from letta_client import Letta
+from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
 from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
-    AgentChatRequest, AgentChatResponse, TerminalCommand,
+    AgentChatRequest, AgentChatResponse, AgentMessage, TerminalCommand,
     FolderNode, FolderCreate, FolderUpdate
 )
 from database import file_db, output_logger
@@ -32,18 +40,63 @@ app.add_middleware(
 )
 
 
+# Agent setup
+_client = None
+_agent = None
+_node_gen_client = None
+_node_gen_agent_config = None
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
+    global _client, _agent, _node_gen_client, _node_gen_agent_config
     try:
+        # Initialize code generation service
         await code_generation_service.initialize()
+        print("Code generation service initialized")
+        
+        # Initialize Letta agents
+        _client, _agent = create_file_system_agent()
+        print(f"Letta agent initialized with ID: {_agent.id}")
+        
+        # Initialize node generation agent
+        _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
+        print("Node generation agent initialized")
+        
         print("All services initialized successfully")
     except Exception as e:
         print(f"Failed to initialize services: {e}")
+        print("Make sure you have:")
+        print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
+        print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
+        print("3. Set ANTHROPIC_API_KEY environment variable")
 
 
 # ==================== FILE OPERATIONS ====================
+
+def create_empty_files_for_metadata():
+    """Create empty Python files for all nodes in metadata that don't have files yet"""
+    try:
+        metadata = load_metadata()
+        created_files = []
+        
+        for node_id, node_meta in metadata.items():
+            if node_meta.get("type") == "file":
+                file_name = node_meta.get("fileName", f"file_{node_id}.py")
+                file_path = os.path.join(CANVAS_DIR, file_name)
+                
+                # Create empty file if it doesn't exist
+                if not os.path.exists(file_path):
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write("# Empty Python file\n")
+                    created_files.append(file_name)
+                    print(f"Created empty file: {file_name}")
+        
+        return created_files
+    except Exception as e:
+        print(f"Error creating empty files: {e}")
+        return []
 
 @app.get("/")
 async def root():
@@ -54,7 +107,6 @@ async def root():
 async def get_files():
     """Get all node files"""
     return file_db.get_all_files()
-
 
 @app.get("/files/{file_id}", response_model=FileNode)
 async def get_file(file_id: str):
@@ -286,6 +338,16 @@ async def move_file_to_folder(file_id: str, folder_id: Optional[str] = None):
 
 # ==================== METADATA OPERATIONS ====================
 
+@app.get("/metadata/raw")
+async def get_metadata_raw():
+    """Get raw metadata.json content"""
+    try:
+        with open(METADATA_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return {"content": content}
+    except Exception as e:
+        return {"content": "{}", "error": str(e)}
+
 @app.get("/metadata")
 async def get_metadata():
     """Get all node metadata"""
@@ -469,6 +531,57 @@ async def letta_chat(request: AgentChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
+
+# Node generation agent chat endpoint
+class NodeChatRequest(BaseModel):
+    messages: List[AgentMessage]
+
+class NodeChatResponse(BaseModel):
+    message: str
+    generated_nodes: Optional[List[dict]] = None
+
+@app.post("/chat/nodes", response_model=NodeChatResponse)
+async def chat_nodes(request: NodeChatRequest):
+    """
+    Chat with the node generation agent to create nodes based on conversation.
+    
+    Args:
+        request: Chat request with messages
+        
+    Returns:
+        Chat response with generated nodes
+    """
+    if not _node_gen_client or not _node_gen_agent_config:
+        raise HTTPException(status_code=503, detail="Node generation agent not initialized")
+    
+    try:
+        # Convert messages to the format expected by Anthropic
+        anthropic_messages = []
+        for msg in request.messages:
+            anthropic_messages.append({"role": msg.role, "content": msg.content})
+        
+        # Generate nodes using Anthropic with agent config
+        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        
+        # Create empty files for any new nodes
+        if generated_nodes:
+            create_empty_files_for_metadata()
+        
+        # Create response message
+        assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
+        if generated_nodes:
+            assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
+        
+        return NodeChatResponse(
+            message=assistant_message,
+            generated_nodes=generated_nodes
+        )
+        
+    except Exception as e:
+        print(f"Error processing chat: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
 
 @app.post("/letta/generate-code")
 async def generate_code_from_metadata():
