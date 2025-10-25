@@ -1,0 +1,450 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useRef, useCallback, useEffect } from "react"
+import { ZoomIn, ZoomOut, Maximize2, Play, Square } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Node } from "@/components/node"
+
+interface CanvasProps {
+  selectedNode: string | null
+  onSelectNode: (id: string | null) => void
+  isRunning: boolean
+  onToggleRun: () => void
+  onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
+}
+
+interface NodeData {
+  id: string
+  type: string
+  label: string
+  x: number
+  y: number
+  status: "idle" | "running" | "success" | "failed"
+}
+
+interface Edge {
+  id: string
+  from: string
+  to: string
+  fromPort?: string
+  toPort?: string
+}
+
+const initialNodes: NodeData[] = [
+  { id: "1", type: "input", label: "User Input", x: 100, y: 100, status: "idle" },
+  { id: "2", type: "ai", label: "GPT-4 Process", x: 350, y: 100, status: "idle" },
+  { id: "3", type: "output", label: "Display Result", x: 600, y: 100, status: "idle" },
+]
+
+const initialEdges: Edge[] = [
+  { id: "e1-2", from: "1", to: "2" },
+  { id: "e2-3", from: "2", to: "3" },
+]
+
+export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: CanvasProps) {
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [nodes, setNodes] = useState<NodeData[]>(initialNodes)
+  const [edges, setEdges] = useState<Edge[]>(initialEdges)
+  const [draggingNode, setDraggingNode] = useState<string | null>(null)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 })
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
+  const [tempEdge, setTempEdge] = useState<{ x: number; y: number } | null>(null)
+
+  const canvasRef = useRef<HTMLDivElement>(null)
+
+  const handleNodeDragStart = useCallback(
+    (nodeId: string, e: React.MouseEvent) => {
+      e.stopPropagation()
+      const node = nodes.find((n) => n.id === nodeId)
+      if (!node) return
+
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      setDraggingNode(nodeId)
+      setDragOffset({
+        x: (e.clientX - rect.left) / zoom - pan.x - node.x,
+        y: (e.clientY - rect.top) / zoom - pan.y - node.y,
+      })
+      onSelectNode(nodeId)
+    },
+    [nodes, zoom, pan, onSelectNode],
+  )
+
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
+        e.preventDefault()
+        setIsPanning(true)
+        setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
+      } else if (e.button === 0 && e.target === e.currentTarget) {
+        onSelectNode(null)
+      }
+    },
+    [pan, onSelectNode],
+  )
+
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (draggingNode) {
+        const rect = canvasRef.current?.getBoundingClientRect()
+        if (!rect) return
+
+        const newX = (e.clientX - rect.left) / zoom - pan.x - dragOffset.x
+        const newY = (e.clientY - rect.top) / zoom - pan.y - dragOffset.y
+
+        setNodes((prev) =>
+          prev.map((node) =>
+            node.id === draggingNode ? { ...node, x: Math.max(0, newX), y: Math.max(0, newY) } : node,
+          ),
+        )
+      } else if (isPanning) {
+        setPan({
+          x: e.clientX - panStart.x,
+          y: e.clientY - panStart.y,
+        })
+      } else if (connectingFrom) {
+        const rect = canvasRef.current?.getBoundingClientRect()
+        if (!rect) return
+        setTempEdge({
+          x: (e.clientX - rect.left) / zoom - pan.x,
+          y: (e.clientY - rect.top) / zoom - pan.y,
+        })
+      }
+    },
+    [draggingNode, isPanning, connectingFrom, zoom, pan, dragOffset, panStart],
+  )
+
+  const handleMouseUp = useCallback(() => {
+    setDraggingNode(null)
+    setIsPanning(false)
+    setConnectingFrom(null)
+    setTempEdge(null)
+  }, [])
+
+  const handleWheel = useCallback((e: WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
+      const delta = e.deltaY > 0 ? -0.1 : 0.1
+      setZoom((prev) => Math.max(0.25, Math.min(2, prev + delta)))
+    }
+  }, [])
+
+  const handleConnectionStart = useCallback(
+    (nodeId: string, e: React.MouseEvent) => {
+      e.stopPropagation()
+      setConnectingFrom(nodeId)
+      onSelectNode(nodeId)
+    },
+    [onSelectNode],
+  )
+
+  const handleConnectionEnd = useCallback(
+    (nodeId: string, e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (connectingFrom && connectingFrom !== nodeId) {
+        const newEdge: Edge = {
+          id: `e${connectingFrom}-${nodeId}`,
+          from: connectingFrom,
+          to: nodeId,
+        }
+        setEdges((prev) => [...prev, newEdge])
+      }
+      setConnectingFrom(null)
+      setTempEdge(null)
+    },
+    [connectingFrom],
+  )
+
+  const handleNodeDelete = useCallback(
+    (nodeId: string) => {
+      setNodes((prev) => prev.filter((n) => n.id !== nodeId))
+      setEdges((prev) => prev.filter((e) => e.from !== nodeId && e.to !== nodeId))
+      if (selectedNode === nodeId) {
+        onSelectNode(null)
+      }
+    },
+    [selectedNode, onSelectNode],
+  )
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      const nodeData = e.dataTransfer.getData("application/json")
+      if (!nodeData) return
+
+      const data = JSON.parse(nodeData)
+      const rect = canvasRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const x = (e.clientX - rect.left) / zoom - pan.x
+      const y = (e.clientY - rect.top) / zoom - pan.y
+
+      const newNode: NodeData = {
+        id: `node-${Date.now()}`,
+        type: data.type,
+        label: data.label,
+        x: Math.max(0, x - 96), // Center the node
+        y: Math.max(0, y - 40),
+        status: "idle",
+      }
+
+      setNodes((prev) => [...prev, newNode])
+    },
+    [zoom, pan],
+  )
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener("mousemove", handleMouseMove)
+    window.addEventListener("mouseup", handleMouseUp)
+    const canvas = canvasRef.current
+    if (canvas) {
+      canvas.addEventListener("wheel", handleWheel, { passive: false })
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove)
+      window.removeEventListener("mouseup", handleMouseUp)
+      if (canvas) {
+        canvas.removeEventListener("wheel", handleWheel)
+      }
+    }
+  }, [handleMouseMove, handleMouseUp, handleWheel])
+
+  useEffect(() => {
+    if (isRunning) {
+      const timer1 = setTimeout(() => {
+        setNodes((prev) => prev.map((n) => (n.id === "1" ? { ...n, status: "running" } : n)))
+      }, 500)
+      const timer2 = setTimeout(() => {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === "1" ? { ...n, status: "success" } : n.id === "2" ? { ...n, status: "running" } : n,
+          ),
+        )
+      }, 1500)
+      const timer3 = setTimeout(() => {
+        setNodes((prev) =>
+          prev.map((n) =>
+            n.id === "2" ? { ...n, status: "success" } : n.id === "3" ? { ...n, status: "running" } : n,
+          ),
+        )
+      }, 3000)
+      const timer4 = setTimeout(() => {
+        setNodes((prev) => prev.map((n) => (n.id === "3" ? { ...n, status: "success" } : n)))
+      }, 4000)
+
+      return () => {
+        clearTimeout(timer1)
+        clearTimeout(timer2)
+        clearTimeout(timer3)
+        clearTimeout(timer4)
+      }
+    } else {
+      setNodes((prev) => prev.map((n) => ({ ...n, status: "idle" })))
+    }
+  }, [isRunning])
+
+  return (
+    <div className="flex-1 relative overflow-hidden neu-inset bg-background">
+      {/* Canvas controls - top right */}
+      <div className="absolute top-4 right-4 z-10 flex gap-2">
+        <Button
+          onClick={onToggleRun}
+          size="sm"
+          variant="ghost"
+          className={`neu-raised neu-hover neu-active ${
+            isRunning ? "bg-destructive/20 text-destructive" : "bg-primary/20 text-primary"
+          }`}
+        >
+          {isRunning ? (
+            <>
+              <Square className="w-4 h-4 mr-2" />
+              Stop
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4 mr-2" />
+              Run
+            </>
+          )}
+        </Button>
+
+        <div className="w-px h-8 bg-border" />
+
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setZoom(Math.min(zoom + 0.1, 2))}
+          className="neu-raised neu-hover neu-active bg-card text-foreground"
+        >
+          <ZoomIn className="w-4 h-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setZoom(Math.max(zoom - 0.1, 0.25))}
+          className="neu-raised neu-hover neu-active bg-card text-foreground"
+        >
+          <ZoomOut className="w-4 h-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setZoom(1)
+            setPan({ x: 0, y: 0 })
+          }}
+          className="neu-raised neu-hover neu-active bg-card text-foreground"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Grid background with pan/zoom */}
+      <div
+        ref={canvasRef}
+        className="w-full h-full relative"
+        onMouseDown={handleCanvasMouseDown}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        style={{
+          cursor: isPanning ? "grabbing" : draggingNode ? "grabbing" : "default",
+        }}
+      >
+        <div
+          style={{
+            transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+            transformOrigin: "0 0",
+            width: "100%",
+            height: "100%",
+            backgroundImage: `
+              linear-gradient(to right, oklch(0.22 0.01 250) 1px, transparent 1px),
+              linear-gradient(to bottom, oklch(0.22 0.01 250) 1px, transparent 1px)
+            `,
+            backgroundSize: "20px 20px",
+          }}
+        >
+          {/* Edges */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: "visible" }}>
+            {edges.map((edge) => {
+              const fromNode = nodes.find((n) => n.id === edge.from)
+              const toNode = nodes.find((n) => n.id === edge.to)
+              if (!fromNode || !toNode) return null
+
+              const fromX = fromNode.x + 192
+              const fromY = fromNode.y + 60
+              const toX = toNode.x
+              const toY = toNode.y + 60
+
+              const isActive =
+                isRunning &&
+                (fromNode.status === "running" || fromNode.status === "success") &&
+                toNode.status !== "idle"
+
+              return (
+                <g key={edge.id}>
+                  <defs>
+                    <marker
+                      id={`arrowhead-${edge.id}`}
+                      markerWidth="10"
+                      markerHeight="10"
+                      refX="9"
+                      refY="3"
+                      orient="auto"
+                    >
+                      <polygon
+                        points="0 0, 10 3, 0 6"
+                        fill={isActive ? "oklch(0.6 0.18 250)" : "oklch(0.35 0.02 250)"}
+                      />
+                    </marker>
+                  </defs>
+                  <path
+                    d={`M ${fromX} ${fromY} C ${fromX + 100} ${fromY}, ${toX - 100} ${toY}, ${toX} ${toY}`}
+                    fill="none"
+                    stroke={isActive ? "oklch(0.6 0.18 250)" : "oklch(0.35 0.02 250)"}
+                    strokeWidth="2"
+                    markerEnd={`url(#arrowhead-${edge.id})`}
+                    className={isActive ? "animate-pulse" : ""}
+                  />
+                  {isActive && (
+                    <circle r="4" fill="oklch(0.6 0.18 250)">
+                      <animateMotion
+                        dur="2s"
+                        repeatCount="indefinite"
+                        path={`M ${fromX} ${fromY} C ${fromX + 100} ${fromY}, ${toX - 100} ${toY}, ${toX} ${toY}`}
+                      />
+                    </circle>
+                  )}
+                </g>
+              )
+            })}
+
+            {/* Temporary edge while connecting */}
+            {connectingFrom &&
+              tempEdge &&
+              (() => {
+                const fromNode = nodes.find((n) => n.id === connectingFrom)
+                if (!fromNode) return null
+
+                const fromX = fromNode.x + 192
+                const fromY = fromNode.y + 60
+
+                return (
+                  <path
+                    d={`M ${fromX} ${fromY} C ${fromX + 100} ${fromY}, ${tempEdge.x - 100} ${tempEdge.y}, ${tempEdge.x} ${tempEdge.y}`}
+                    fill="none"
+                    stroke="oklch(0.5 0.15 250)"
+                    strokeWidth="2"
+                    strokeDasharray="5,5"
+                    opacity="0.6"
+                  />
+                )
+              })()}
+          </svg>
+
+          {/* Nodes */}
+          {nodes.map((node) => (
+            <Node
+              key={node.id}
+              id={node.id}
+              type={node.type}
+              label={node.label}
+              x={node.x}
+              y={node.y}
+              status={node.status}
+              isSelected={selectedNode === node.id}
+              onSelect={() => onSelectNode(node.id)}
+              onDragStart={handleNodeDragStart}
+              onDelete={handleNodeDelete}
+              onConnectionStart={handleConnectionStart}
+              onConnectionEnd={handleConnectionEnd}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Zoom indicator */}
+      <div className="absolute bottom-4 right-4 neu-raised bg-card px-3 py-1.5 rounded-lg">
+        <span className="text-xs font-mono text-muted-foreground">{Math.round(zoom * 100)}%</span>
+      </div>
+
+      {/* Instructions */}
+      <div className="absolute bottom-4 left-4 neu-raised bg-card px-3 py-2 rounded-lg max-w-xs">
+        <p className="text-xs text-muted-foreground">
+          <span className="font-semibold">Drag</span> nodes to move • <span className="font-semibold">Shift+Drag</span>{" "}
+          to pan • <span className="font-semibold">Ctrl+Wheel</span> to zoom
+        </p>
+      </div>
+    </div>
+  )
+}
