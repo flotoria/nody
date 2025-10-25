@@ -37,6 +37,7 @@ class FileCreate(BaseModel):
     filePath: str
     fileType: str
     content: str = ""
+    description: str = ""
 
 class NodeMetadata(BaseModel):
     id: str
@@ -51,6 +52,77 @@ files_db = {}
 # Ensure canvas/files directory exists
 CANVAS_DIR = os.path.join(os.path.dirname(__file__), "..", "canvas", "files")
 os.makedirs(CANVAS_DIR, exist_ok=True)
+
+def load_existing_files():
+    """Load existing files from filesystem and metadata"""
+    global files_db
+    metadata = load_metadata()
+    
+    for node_id, node_meta in metadata.items():
+        if node_meta.get("type") == "file":
+            # Check if file exists on filesystem
+            file_path = os.path.join(CANVAS_DIR, f"{node_id}.txt")  # Default to .txt for now
+            
+            # Try to find the actual file by looking for files with the node_id
+            actual_file_path = None
+            if os.path.exists(file_path):
+                actual_file_path = file_path
+            else:
+                # Look for any file that might match this node
+                files_in_dir = os.listdir(CANVAS_DIR)
+                if files_in_dir:
+                    # If there's only one file, use it (common case)
+                    if len(files_in_dir) == 1:
+                        actual_file_path = os.path.join(CANVAS_DIR, files_in_dir[0])
+                    else:
+                        # Look for files that start with node_id or contain node_id
+                        for filename in files_in_dir:
+                            if filename.startswith(node_id) or node_id in filename:
+                                actual_file_path = os.path.join(CANVAS_DIR, filename)
+                                break
+                        # If no match found, use the first file (fallback)
+                        if not actual_file_path:
+                            actual_file_path = os.path.join(CANVAS_DIR, files_in_dir[0])
+            
+            if actual_file_path and os.path.exists(actual_file_path):
+                # Read file content
+                try:
+                    with open(actual_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except:
+                    content = ""
+                
+                # Determine file type from extension
+                file_extension = os.path.splitext(actual_file_path)[1]
+                file_type_map = {
+                    '.py': 'python',
+                    '.js': 'javascript', 
+                    '.ts': 'typescript',
+                    '.json': 'json',
+                    '.html': 'html',
+                    '.css': 'css',
+                    '.md': 'markdown',
+                    '.txt': 'text'
+                }
+                file_type = file_type_map.get(file_extension, 'text')
+                
+                # Create FileNode object
+                file_node = FileNode(
+                    id=node_id,
+                    label=os.path.basename(actual_file_path),
+                    type="file",
+                    filePath=os.path.basename(actual_file_path),
+                    fileType=file_type,
+                    content=content,
+                    x=node_meta.get("x", 0),
+                    y=node_meta.get("y", 0),
+                    status="idle",
+                    isExpanded=False,
+                    isModified=False
+                )
+                
+                files_db[node_id] = file_node
+                print(f"Loaded file: {node_id} -> {actual_file_path}")
 
 # Metadata file path
 METADATA_FILE = os.path.join(os.path.dirname(__file__), "..", "canvas", "metadata.json")
@@ -148,8 +220,8 @@ async def create_file(file_create: FileCreate):
         f.write(file_create.content)
     
     # Update metadata
-    description = f"File: {file_create.filePath} ({file_create.fileType})"
-    update_node_metadata(file_id, "file", description, new_file.x, new_file.y)
+    final_description = file_create.description if file_create.description else f"File: {file_create.filePath} ({file_create.fileType})"
+    update_node_metadata(file_id, "file", final_description, new_file.x, new_file.y)
     
     return new_file
 
@@ -181,15 +253,35 @@ async def update_file_position(file_id: str, x: float, y: float):
     
     # Update metadata position
     node = files_db[file_id]
-    description = f"File: {node.filePath} ({node.fileType})"
-    update_node_metadata(file_id, "file", description, x, y)
+    # Preserve existing description instead of overriding it
+    existing_metadata = load_metadata()
+    existing_description = existing_metadata.get(file_id, {}).get("description", f"File: {node.filePath} ({node.fileType})")
+    update_node_metadata(file_id, "file", existing_description, x, y)
     
     return {"message": "File position updated successfully"}
+
+class DescriptionUpdate(BaseModel):
+    description: str
+
+@app.put("/files/{file_id}/description")
+async def update_file_description(file_id: str, description_update: DescriptionUpdate):
+    """Update file node description"""
+    if file_id not in files_db:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Update metadata
+    node = files_db[file_id]
+    update_node_metadata(file_id, "file", description_update.description, node.x, node.y)
+    
+    return {"message": "File description updated successfully"}
 
 @app.get("/metadata")
 async def get_metadata():
     """Get all node metadata"""
     return load_metadata()
+
+# Load existing files on startup
+load_existing_files()
 
 if __name__ == "__main__":
     import uvicorn

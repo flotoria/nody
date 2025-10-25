@@ -8,6 +8,7 @@ import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import { Home } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
+import { FileAPI } from "@/lib/api"
 
 export default function NodeFlowPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
@@ -20,9 +21,24 @@ export default function NodeFlowPage() {
     setMetadata(updatedMetadata)
   }
 
+  const handleUpdateDescription = async (nodeId: string, description: string) => {
+    console.log('Main page: handleUpdateDescription called', { nodeId, description })
+    try {
+      console.log('Main page: calling FileAPI.updateFileDescription')
+      await FileAPI.updateFileDescription(nodeId, description)
+      console.log('Main page: API call successful, refreshing metadata')
+      // Refresh metadata after updating description
+      const updatedMetadata = await FileAPI.getMetadata()
+      console.log('Main page: got updated metadata:', updatedMetadata)
+      setMetadata(updatedMetadata)
+    } catch (error) {
+      console.error('Main page: Failed to update description:', error)
+    }
+  }
+
   return (
     <div className="h-screen flex overflow-hidden bg-background">
-      <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} />
+      <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} onUpdateDescription={handleUpdateDescription} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-12 shrink-0 neu-inset-sm bg-background px-4 flex items-center justify-between">

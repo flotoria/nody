@@ -23,6 +23,7 @@ export interface FileCreate {
   filePath: string
   fileType: string
   content?: string
+  description?: string
 }
 
 export interface NodeMetadata {
@@ -93,6 +94,24 @@ export class FileAPI {
     if (!response.ok) {
       throw new Error('Failed to update file position')
     }
+  }
+
+  static async updateFileDescription(fileId: string, description: string): Promise<void> {
+    console.log('FileAPI: updateFileDescription called', { fileId, description })
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/description`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ description }),
+    })
+    console.log('FileAPI: response status:', response.status, response.ok)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('FileAPI: response error:', errorText)
+      throw new Error('Failed to update file description')
+    }
+    console.log('FileAPI: updateFileDescription successful')
   }
 
   static async getMetadata(): Promise<Record<string, NodeMetadata>> {

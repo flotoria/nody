@@ -75,16 +75,21 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
   // Load files and metadata from API on component mount
   useEffect(() => {
     const loadData = async () => {
+      console.log('Canvas: Starting to load data from API')
       try {
+        console.log('Canvas: Calling FileAPI.getFiles() and FileAPI.getMetadata()')
         const [files, metadataData] = await Promise.all([
           FileAPI.getFiles(),
           FileAPI.getMetadata()
         ])
-        setNodes(files)
+        console.log('Canvas: Got files:', files)
+        console.log('Canvas: Got metadata:', metadataData)
+        setNodes(files as NodeData[])
         setMetadata(metadataData)
         setLoading(false)
+        console.log('Canvas: Data loading completed successfully')
       } catch (error) {
-        console.error('Failed to load data:', error)
+        console.error('Canvas: Failed to load data:', error)
         setLoading(false)
       }
     }
@@ -259,12 +264,13 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
     }
   }, [])
 
-  const handleFileCreate = useCallback(async (fileName: string, fileType: string) => {
+  const handleFileCreate = useCallback(async (fileName: string, fileType: string, description?: string) => {
     try {
       const newFile = await FileAPI.createFile({
         filePath: fileName,
         fileType: fileType,
-        content: ""
+        content: "",
+        description: description
       })
       
       // Update the position if we have a pending drop
@@ -274,7 +280,7 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
         newFile.y = pendingFileDrop.y
       }
       
-      setNodes((prev) => [...prev, newFile])
+      setNodes((prev) => [...prev, newFile as NodeData])
       
       // Refresh metadata after creating file
       const updatedMetadata = await FileAPI.getMetadata()

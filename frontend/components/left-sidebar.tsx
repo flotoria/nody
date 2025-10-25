@@ -58,9 +58,10 @@ interface LeftSidebarProps {
   nodes: FileNode[]
   metadata: Record<string, NodeMetadata>
   onCreateFile?: (fileName: string, fileType: string) => void
+  onUpdateDescription?: (nodeId: string, description: string) => void
 }
 
-export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile }: LeftSidebarProps) {
+export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpdateDescription }: LeftSidebarProps) {
   const [selectedCategory, setSelectedCategory] = useState("files")
 
   const handleDragStart = (e: React.DragEvent, nodeData: { label: string; type: string }) => {
@@ -125,7 +126,7 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile }: Lef
         </TabsContent>
 
         <TabsContent value="inspector" className="flex-1 overflow-y-auto custom-scrollbar m-0">
-          <Inspector selectedNode={selectedNode} nodes={nodes} metadata={metadata} />
+          <Inspector selectedNode={selectedNode} nodes={nodes} metadata={metadata} onUpdateDescription={onUpdateDescription} />
         </TabsContent>
       </Tabs>
     </div>
