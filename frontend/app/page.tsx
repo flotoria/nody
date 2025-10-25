@@ -51,11 +51,34 @@ export default function NodeFlowPage() {
         const rawMetadata = JSON.parse(metadataResponse.content)
         const updatedFiles = await FileAPI.getFiles()
         
-        // Always update metadata if it's empty or if data has changed
+        // Improved metadata change detection
         setMetadata(prev => {
           const prevKeys = Object.keys(prev)
           const newKeys = Object.keys(rawMetadata)
-          if (prevKeys.length === 0 || JSON.stringify(prev) !== JSON.stringify(rawMetadata)) {
+          const prevKeysSet = new Set(prevKeys)
+          const newKeysSet = new Set(newKeys)
+          
+          // Check if keys have changed
+          const keysChanged = prevKeys.length !== newKeys.length || 
+                             ![...prevKeysSet].every(key => newKeysSet.has(key)) ||
+                             ![...newKeysSet].every(key => prevKeysSet.has(key))
+          
+          // Check if content has changed (more robust comparison)
+          const contentChanged = keysChanged || 
+                                 Object.keys(rawMetadata).some(key => {
+                                   const prevValue = prev[key]
+                                   const newValue = rawMetadata[key]
+                                   return JSON.stringify(prevValue) !== JSON.stringify(newValue)
+                                 })
+          
+          if (prevKeys.length === 0 || contentChanged) {
+            console.log('Main page: Metadata updated from polling:', {
+              prevKeys: prevKeys.length,
+              newKeys: newKeys.length,
+              keysChanged,
+              contentChanged,
+              rawMetadata
+            })
             return rawMetadata
           }
           return prev
@@ -63,6 +86,7 @@ export default function NodeFlowPage() {
         
         setNodes(prev => {
           if (JSON.stringify(prev) !== JSON.stringify(updatedFiles)) {
+            console.log('Main page: Files updated from polling:', updatedFiles)
             return updatedFiles
           }
           return prev
@@ -72,8 +96,8 @@ export default function NodeFlowPage() {
       }
     }
 
-    // Poll every 2 seconds for updates
-    const interval = setInterval(pollUpdates, 2000)
+    // Poll every 1 second for faster updates
+    const interval = setInterval(pollUpdates, 1000)
 
     // Initial poll
     pollUpdates()
