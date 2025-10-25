@@ -7,7 +7,7 @@ import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Home } from "lucide-react"
+import { Home, Sparkles } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
@@ -23,6 +23,7 @@ export default function NodeFlowPage() {
   const [nodes, setNodes] = useState<FileNode[]>([])
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
+  const [isGenerating, setIsGenerating] = useState(false)
 
   // Poll for real-time output messages
   useEffect(() => {
@@ -71,6 +72,21 @@ export default function NodeFlowPage() {
     }
   }
 
+  const handleToggleRun = async () => {
+    if (isGenerating) return
+    
+    setIsGenerating(true)
+    try {
+      console.log('Generating files...')
+      await FileAPI.runProject()
+      console.log('Generation completed')
+    } catch (error) {
+      console.error('Failed to generate files:', error)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
@@ -92,12 +108,32 @@ export default function NodeFlowPage() {
                   <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
                   <span className="text-sm text-muted-foreground">Visual Development Environment</span>
                 </div>
-                <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
-                  <Link href="/onboarding">
-                    <Home className="w-4 h-4 mr-2" />
-                    Home
-                  </Link>
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    onClick={handleToggleRun}
+                    disabled={isGenerating}
+                    className="bg-purple-600 hover:bg-purple-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                    size="sm"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Generate All
+                      </>
+                    )}
+                  </Button>
+                  <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
+                    <Link href="/onboarding">
+                      <Home className="w-4 h-4 mr-2" />
+                      Home
+                    </Link>
+                  </Button>
+                </div>
               </header>
             </Panel>
 

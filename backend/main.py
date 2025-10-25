@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 from letta_client import Letta
-from agent import create_file_system_agent
+from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
 # Load environment variables
 load_dotenv()
@@ -695,6 +695,15 @@ async def run_project():
                 if not description:
                     write_output(f"⏭️  [{i}/{total_files}] Skipping {file_name} (no description)", "INFO")
                     continue
+                
+                # Check if file exists and is not empty
+                file_path = os.path.join(CANVAS_DIR, file_name)
+                if os.path.exists(file_path):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        existing_content = f.read().strip()
+                    if existing_content:
+                        write_output(f"⏭️  [{i}/{total_files}] Skipping {file_name} (already has content)", "INFO")
+                        continue
                 
                 write_output(f"🔄 [{i}/{total_files}] Generating {file_name}...", "INFO")
                 write_output(f"   Description: {description}", "INFO")

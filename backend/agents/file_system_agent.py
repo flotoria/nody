@@ -1,6 +1,5 @@
 """
-Letta agent setup with comprehensive file system tools.
-This module creates and configures a Letta agent with extensive file operation capabilities.
+File System Agent - Letta agent with comprehensive file system tools.
 """
 
 import os
@@ -15,13 +14,43 @@ from tools import (
 # Load environment variables
 load_dotenv()
 
+# Path to canvas/files directory
+CANVAS_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "canvas", "files")
+
+def load_canvas_files():
+    """Load all files from canvas/files/ directory and return as memory blocks."""
+    memory_blocks = []
+    
+    if not os.path.exists(CANVAS_FILES_DIR):
+        return memory_blocks
+    
+    try:
+        for filename in os.listdir(CANVAS_FILES_DIR):
+            file_path = os.path.join(CANVAS_FILES_DIR, filename)
+            if os.path.isfile(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    memory_blocks.append({
+                        "label": filename,
+                        "value": content,
+                        "description": f"Content of {filename} file"
+                    })
+                except Exception as e:
+                    print(f"Error reading file {filename}: {e}")
+    except Exception as e:
+        print(f"Error loading canvas files: {e}")
+    
+    return memory_blocks
+
 
 def create_file_system_agent():
     """
     Create a Letta agent with comprehensive file system tools.
     
     Returns:
-        Letta agent instance
+        tuple: (Letta client, agent instance)
     """
     # Initialize Letta client
     # Check if using Letta Cloud or self-hosted
@@ -52,6 +81,9 @@ def create_file_system_agent():
         client.tools.create_from_function(func=get_current_directory),
         client.tools.create_from_function(func=change_directory),
     ]
+    
+    # Load canvas files as memory blocks
+    canvas_files = load_canvas_files()
     
     # Create agent with memory blocks and tools
     agent = client.agents.create(
@@ -96,81 +128,13 @@ The backend uses Letta for AI-powered file operations and the frontend is a Next
 6. Validate file paths before operations""",
                 "description": "Safety guidelines for file system operations"
             }
-        ],
+        ] + canvas_files,
         tools=[tool.name for tool in tools] + ["web_search", "run_code"],  # Include built-in tools too
         model="openai/gpt-4o-mini",  # Using cost-effective model
         embedding="openai/text-embedding-3-small"
     )
     
-    print(f"Created agent with ID: {agent.id}")
+    print(f"Created file system agent with ID: {agent.id}")
     print(f"Agent has {len(tools)} custom file system tools plus built-in tools")
     
     return client, agent
-
-
-def interact_with_agent(client, agent_id):
-    """
-    Interactive loop to chat with the agent.
-    
-    Args:
-        client: Letta client instance
-        agent_id: ID of the agent to interact with
-    """
-    print("\n" + "="*60)
-    print("File System Agent Ready!")
-    print("="*60)
-    print("You can now ask me to help with file operations like:")
-    print("- 'Read the contents of main.py'")
-    print("- 'Create a new file called test.txt with some content'")
-    print("- 'List all files in the current directory'")
-    print("- 'Search for all Python files in the project'")
-    print("- 'Edit the main.py file to add a new function'")
-    print("\nType 'quit' to exit.")
-    print("="*60)
-    
-    while True:
-        try:
-            user_input = input("\nYou: ").strip()
-            
-            if user_input.lower() in ['quit', 'exit', 'q']:
-                print("Goodbye!")
-                break
-            
-            if not user_input:
-                continue
-            
-            # Send message to agent
-            response = client.agents.messages.create(
-                agent_id=agent_id,
-                messages=[{"role": "user", "content": user_input}]
-            )
-            
-            # Process and display response
-            print("\nAgent:")
-            for msg in response.messages:
-                if msg.message_type == "assistant_message":
-                    print(msg.content)
-                elif msg.message_type == "reasoning_message":
-                    print(f"[Reasoning: {msg.reasoning}]")
-                elif msg.message_type == "tool_call_message":
-                    print(f"[Tool: {msg.tool_call.name}]")
-                elif msg.message_type == "tool_return_message":
-                    print(f"[Tool Result: {msg.tool_return}]")
-                    
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
-        except Exception as e:
-            print(f"Error: {e}")
-
-
-if __name__ == "__main__":
-    try:
-        client, agent = create_file_system_agent()
-        interact_with_agent(client, agent.id)
-    except Exception as e:
-        print(f"Failed to create agent: {e}")
-        print("\nMake sure you have:")
-        print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
-        print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
-        print("3. Installed dependencies: pip install -e .")
