@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { Sparkles, Database, Zap, ArrowRight, Trash2 } from "lucide-react"
+import { Sparkles, Database, Zap, ArrowRight, Trash2, FileText, ChevronDown, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface NodeProps {
@@ -18,6 +18,13 @@ interface NodeProps {
   onDelete?: (nodeId: string) => void
   onConnectionStart?: (nodeId: string, e: React.MouseEvent) => void
   onConnectionEnd?: (nodeId: string, e: React.MouseEvent) => void
+  // File-specific props
+  filePath?: string
+  fileType?: string
+  content?: string
+  isExpanded?: boolean
+  isModified?: boolean
+  onExpand?: (nodeId: string) => void
 }
 
 const nodeIcons = {
@@ -26,6 +33,7 @@ const nodeIcons = {
   data: Database,
   api: Zap,
   output: ArrowRight,
+  file: FileText,
 }
 
 const statusColors = {
@@ -48,6 +56,12 @@ export function Node({
   onDelete,
   onConnectionStart,
   onConnectionEnd,
+  filePath,
+  fileType,
+  content,
+  isExpanded,
+  isModified,
+  onExpand,
 }: NodeProps) {
   const Icon = nodeIcons[type as keyof typeof nodeIcons] || ArrowRight
 
@@ -75,8 +89,22 @@ export function Node({
               <Icon className="w-4 h-4 text-primary" />
             </div>
             <span className="font-semibold text-sm text-foreground text-soft-shadow">{label}</span>
+            {isModified && <span className="text-xs text-orange-400">●</span>}
           </div>
           <div className="flex items-center gap-2">
+            {type === "file" && onExpand && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onExpand(id)
+                }}
+              >
+                {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </Button>
+            )}
             <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />
             {isSelected && onDelete && (
               <Button
@@ -114,6 +142,7 @@ export function Node({
             {type === "input" && "type: text"}
             {type === "output" && "format: json"}
             {type === "data" && "source: api"}
+            {type === "file" && `type: ${fileType || "text"}`}
           </p>
         </div>
 

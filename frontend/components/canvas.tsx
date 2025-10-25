@@ -6,6 +6,9 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { ZoomIn, ZoomOut, Maximize2, Play, Square } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Node } from "@/components/node"
+import { CodeEditor } from "@/components/code-editor"
+import { FileNamingModal } from "@/components/file-naming-modal"
+import { FileAPI, FileNode, NodeMetadata } from "@/lib/api"
 
 interface CanvasProps {
   selectedNode: string | null
@@ -13,6 +16,7 @@ interface CanvasProps {
   isRunning: boolean
   onToggleRun: () => void
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
+  onDataChange?: (nodes: FileNode[], metadata: Record<string, NodeMetadata>) => void
 }
 
 interface NodeData {
@@ -22,6 +26,12 @@ interface NodeData {
   x: number
   y: number
   status: "idle" | "running" | "success" | "failed"
+  // File-specific properties
+  filePath?: string
+  fileType?: string
+  content?: string
+  isExpanded?: boolean
+  isModified?: boolean
 }
 
 interface Edge {
@@ -33,9 +43,9 @@ interface Edge {
 }
 
 const initialNodes: NodeData[] = [
-  { id: "1", type: "input", label: "User Input", x: 100, y: 100, status: "idle" },
-  { id: "2", type: "ai", label: "GPT-4 Process", x: 350, y: 100, status: "idle" },
-  { id: "3", type: "output", label: "Display Result", x: 600, y: 100, status: "idle" },
+  { id: "1", type: "file", label: "main.py", x: 100, y: 100, status: "idle", filePath: "main.py", fileType: "python", content: "# FastAPI main file\nfrom fastapi import FastAPI\n\napp = FastAPI()\n\n@app.get(\"/\")\ndef read_root():\n    return {\"Hello\": \"World\"}", isExpanded: false, isModified: false },
+  { id: "2", type: "file", label: "models.py", x: 350, y: 100, status: "idle", filePath: "models.py", fileType: "python", content: "# Data models\nfrom pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n    name: str\n    email: str", isExpanded: false, isModified: false },
+  { id: "3", type: "file", label: "config.py", x: 600, y: 100, status: "idle", filePath: "config.py", fileType: "python", content: "# Configuration\nimport os\n\nDATABASE_URL = os.getenv(\"DATABASE_URL\", \"sqlite:///./app.db\")\nDEBUG = os.getenv(\"DEBUG\", \"False\").lower() == \"true\"", isExpanded: false, isModified: false },
 ]
 
 const initialEdges: Edge[] = [
@@ -43,19 +53,50 @@ const initialEdges: Edge[] = [
   { id: "e2-3", from: "2", to: "3" },
 ]
 
-export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: CanvasProps) {
+export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onDataChange }: CanvasProps) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
-  const [nodes, setNodes] = useState<NodeData[]>(initialNodes)
-  const [edges, setEdges] = useState<Edge[]>(initialEdges)
+  const [nodes, setNodes] = useState<NodeData[]>([])
+  const [edges, setEdges] = useState<Edge[]>([])
   const [draggingNode, setDraggingNode] = useState<string | null>(null)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
   const [tempEdge, setTempEdge] = useState<{ x: number; y: number } | null>(null)
+  const [expandedNode, setExpandedNode] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showFileModal, setShowFileModal] = useState(false)
+  const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
+  const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
 
   const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Load files and metadata from API on component mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [files, metadataData] = await Promise.all([
+          FileAPI.getFiles(),
+          FileAPI.getMetadata()
+        ])
+        setNodes(files)
+        setMetadata(metadataData)
+        setLoading(false)
+      } catch (error) {
+        console.error('Failed to load data:', error)
+        setLoading(false)
+      }
+    }
+    loadData()
+  }, [])
+
+  // Notify parent when data changes
+  useEffect(() => {
+    if (onDataChange && !loading) {
+      onDataChange(nodes, metadata)
+    }
+  }, [nodes, metadata, loading, onDataChange])
 
   const handleNodeDragStart = useCallback(
     (nodeId: string, e: React.MouseEvent) => {
@@ -120,12 +161,27 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
     [draggingNode, isPanning, connectingFrom, zoom, pan, dragOffset, panStart],
   )
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback(async () => {
+    // If we were dragging a node, update its position on the backend
+    if (draggingNode) {
+      const node = nodes.find((n) => n.id === draggingNode)
+      if (node) {
+        try {
+          await FileAPI.updateFilePosition(node.id, node.x, node.y)
+          // Refresh metadata after position update
+          const updatedMetadata = await FileAPI.getMetadata()
+          setMetadata(updatedMetadata)
+        } catch (error) {
+          console.error('Failed to update node position:', error)
+        }
+      }
+    }
+    
     setDraggingNode(null)
     setIsPanning(false)
     setConnectingFrom(null)
     setTempEdge(null)
-  }, [])
+  }, [draggingNode, nodes])
 
   const handleWheel = useCallback((e: WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -162,15 +218,74 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
   )
 
   const handleNodeDelete = useCallback(
-    (nodeId: string) => {
-      setNodes((prev) => prev.filter((n) => n.id !== nodeId))
-      setEdges((prev) => prev.filter((e) => e.from !== nodeId && e.to !== nodeId))
-      if (selectedNode === nodeId) {
-        onSelectNode(null)
+    async (nodeId: string) => {
+      try {
+        // Delete from backend (which also deletes the actual file)
+        await FileAPI.deleteFile(nodeId)
+        
+        // Remove from local state
+        setNodes((prev) => prev.filter((n) => n.id !== nodeId))
+        setEdges((prev) => prev.filter((e) => e.from !== nodeId && e.to !== nodeId))
+        
+        if (selectedNode === nodeId) {
+          onSelectNode(null)
+        }
+        if (expandedNode === nodeId) {
+          setExpandedNode(null)
+        }
+      } catch (error) {
+        console.error('Failed to delete file:', error)
+        // You could add a toast notification here
       }
     },
-    [selectedNode, onSelectNode],
+    [selectedNode, onSelectNode, expandedNode],
   )
+
+  const handleNodeExpand = useCallback((nodeId: string) => {
+    setExpandedNode(expandedNode === nodeId ? null : nodeId)
+  }, [expandedNode])
+
+  const handleFileSave = useCallback(async (nodeId: string, content: string) => {
+    try {
+      await FileAPI.updateFileContent(nodeId, content)
+      setNodes((prev) => prev.map((node) => 
+        node.id === nodeId 
+          ? { ...node, content, isModified: false }
+          : node
+      ))
+    } catch (error) {
+      console.error('Failed to save file:', error)
+      // You could add a toast notification here
+    }
+  }, [])
+
+  const handleFileCreate = useCallback(async (fileName: string, fileType: string) => {
+    try {
+      const newFile = await FileAPI.createFile({
+        filePath: fileName,
+        fileType: fileType,
+        content: ""
+      })
+      
+      // Update the position if we have a pending drop
+      if (pendingFileDrop) {
+        await FileAPI.updateFilePosition(newFile.id, pendingFileDrop.x, pendingFileDrop.y)
+        newFile.x = pendingFileDrop.x
+        newFile.y = pendingFileDrop.y
+      }
+      
+      setNodes((prev) => [...prev, newFile])
+      
+      // Refresh metadata after creating file
+      const updatedMetadata = await FileAPI.getMetadata()
+      setMetadata(updatedMetadata)
+      
+      setShowFileModal(false)
+      setPendingFileDrop(null)
+    } catch (error) {
+      console.error('Failed to create file:', error)
+    }
+  }, [pendingFileDrop])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -185,6 +300,14 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
       const x = (e.clientX - rect.left) / zoom - pan.x
       const y = (e.clientY - rect.top) / zoom - pan.y
 
+      // Handle file node drops
+      if (data.type === "file" && data.isSpecial) {
+        setPendingFileDrop({ x: Math.max(0, x - 96), y: Math.max(0, y - 40) })
+        setShowFileModal(true)
+        return
+      }
+
+      // Handle regular node drops
       const newNode: NodeData = {
         id: `node-${Date.now()}`,
         type: data.type,
@@ -256,6 +379,17 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
 
   return (
     <div className="flex-1 relative overflow-hidden neu-inset bg-background">
+      {loading ? (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full neu-raised bg-card mx-auto mb-4 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+            <p className="text-sm text-muted-foreground">Loading files...</p>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Canvas controls - top right */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
         <Button
@@ -428,10 +562,61 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
               onDelete={handleNodeDelete}
               onConnectionStart={handleConnectionStart}
               onConnectionEnd={handleConnectionEnd}
+              filePath={node.filePath}
+              fileType={node.fileType}
+              content={node.content}
+              isExpanded={expandedNode === node.id}
+              isModified={node.isModified}
+              onExpand={handleNodeExpand}
             />
           ))}
         </div>
       </div>
+
+      {/* Metadata Debug Panel */}
+      <div className="absolute bottom-4 left-4 neu-raised bg-card rounded-lg p-3 max-w-sm">
+        <h3 className="text-sm font-semibold text-foreground mb-2">Metadata ({Object.keys(metadata).length} nodes)</h3>
+        <div className="text-xs text-muted-foreground space-y-1 max-h-32 overflow-y-auto">
+          {Object.values(metadata).map((nodeMeta) => (
+            <div key={nodeMeta.id} className="flex justify-between">
+              <span className="font-mono">{nodeMeta.id}</span>
+              <span className="text-blue-400">{nodeMeta.type}</span>
+              <span className="text-green-400">({nodeMeta.x}, {nodeMeta.y})</span>
+            </div>
+          ))}
+          {Object.keys(metadata).length === 0 && (
+            <div className="text-muted-foreground italic">No metadata yet</div>
+          )}
+        </div>
+      </div>
+
+      {/* File Naming Modal */}
+      <FileNamingModal
+        isOpen={showFileModal}
+        onClose={() => {
+          setShowFileModal(false)
+          setPendingFileDrop(null)
+        }}
+        onCreateFile={handleFileCreate}
+      />
+
+      {/* Code Editor Overlay */}
+      {expandedNode && (() => {
+        const node = nodes.find(n => n.id === expandedNode)
+        if (!node || node.type !== 'file') return null
+        
+        return (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+            <CodeEditor
+              content={node.content || ''}
+              fileType={node.fileType || 'text'}
+              onSave={(content) => handleFileSave(node.id, content)}
+              onClose={() => setExpandedNode(null)}
+              isModified={node.isModified}
+            />
+          </div>
+        )
+      })()}
 
       {/* Zoom indicator */}
       <div className="absolute bottom-4 right-4 neu-raised bg-card px-3 py-1.5 rounded-lg">
@@ -445,6 +630,8 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun }: C
           to pan • <span className="font-semibold">Ctrl+Wheel</span> to zoom
         </p>
       </div>
+        </>
+      )}
     </div>
   )
 }

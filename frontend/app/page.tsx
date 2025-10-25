@@ -7,14 +7,22 @@ import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import { Home } from "lucide-react"
+import type { FileNode, NodeMetadata } from "@/lib/api"
 
 export default function NodeFlowPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [nodes, setNodes] = useState<FileNode[]>([])
+  const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
+
+  const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
+    setNodes(updatedNodes)
+    setMetadata(updatedMetadata)
+  }
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
-      <LeftSidebar selectedNode={selectedNode} />
+      <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} />
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-12 shrink-0 neu-inset-sm bg-background px-4 flex items-center justify-between">
@@ -33,6 +41,7 @@ export default function NodeFlowPage() {
           onSelectNode={setSelectedNode}
           isRunning={isRunning}
           onToggleRun={() => setIsRunning(!isRunning)}
+          onDataChange={handleDataChange}
         />
 
         <BottomDock />
