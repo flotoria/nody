@@ -410,6 +410,17 @@ export class FileAPI {
     return { success: true, progress: data.progress || [] }
   }
 
+  static async startApplication(): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/run-app`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Failed to start application')
+      throw new Error(errorText)
+    }
+    return response.json()
+  }
+
   static async chat(messages: ChatMessage[]): Promise<ChatResponse> {
     const response = await fetch(`${API_BASE_URL}/chat/nodes`, {
       method: 'POST',
