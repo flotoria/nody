@@ -44,63 +44,8 @@ class FileDatabase:
 
     def _generate_placeholder_content(self, file_path: Path, node_meta: Dict[str, Any]) -> str:
         """Generate starter content for newly created files."""
-        description = node_meta.get("description", "").strip()
-        if not description:
-            description = f"TODO: Implement node '{node_meta.get('id', file_path.stem)}'."
-
-        ext = file_path.suffix.lower()
-        node_id = node_meta.get("id", file_path.stem)
-
-        if ext in {".json"}:
-            return json.dumps(
-                {
-                    "placeholder": True,
-                    "node_id": node_id,
-                    "description": description,
-                },
-                indent=2,
-            ) + "\n"
-
-        if ext in {".md", ".markdown"}:
-            return f"# {node_id}\n\n{description}\n"
-
-        if ext in {".py"}:
-            lines = '\n'.join(description.splitlines())
-            return (
-                f'"""{lines}"""\n\n'
-                "def main():\n"
-                f"    # TODO: implement {node_id}\n"
-                "    pass\n\n"
-                "if __name__ == \"__main__\":\n"
-                "    main()\n"
-            )
-
-        if ext in {".ts", ".tsx", ".js", ".jsx"}:
-            comment = "\n".join(f" * {line}" for line in description.splitlines())
-            export_name = "".join(part.capitalize() for part in node_id.split("_"))
-            return (
-                "/**\n"
-                f"{comment}\n"
-                " */\n"
-                f"export const {export_name or 'TodoComponent'} = () => {{\n"
-                f"  // TODO: implement {node_id}\n"
-                "  return null\n"
-                "}\n"
-            )
-
-        if ext in {".html"}:
-            return (
-                "<!--\n"
-                f"{description}\n"
-                "-->\n"
-                "<div>\n"
-                f"  <!-- TODO: implement {node_id} -->\n"
-                "</div>\n"
-            )
-
-        # Default to hash-style comments
-        comment_lines = "\n".join(f"# {line}" for line in description.splitlines())
-        return f"{comment_lines}\n\n# TODO: implement {node_id}\n"
+        # Always return empty content - no templates, no placeholders
+        return ""
 
     def _create_or_update_file_node(self, node_id: str, node_meta: Dict[str, Any]):
         """Ensure an in-memory FileNode exists for metadata entry."""
@@ -286,18 +231,26 @@ class FileDatabase:
     
     def delete_file(self, file_id: str):
         """Delete a file node."""
-        if file_id not in self.files_db:
+        # Check if file exists in metadata first
+        metadata = self.load_metadata()
+        if file_id not in metadata:
             raise ValueError("File not found")
         
+        # Get file path from metadata if not in memory
+        node_meta = metadata[file_id]
+        file_name = node_meta.get("fileName", f"{file_id}.txt")
+        
         # Remove node file from filesystem
-        file_path = CANVAS_DIR / self.files_db[file_id].filePath
+        file_path = CANVAS_DIR / file_name
         if file_path.exists():
             file_path.unlink()
         
         # Remove from metadata
         self.remove_node_metadata(file_id)
         
-        del self.files_db[file_id]
+        # Remove from in-memory database if it exists
+        if file_id in self.files_db:
+            del self.files_db[file_id]
 
 
 class OutputLogger:
