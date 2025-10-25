@@ -26,7 +26,9 @@ interface BottomDockProps {
 export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
   const allMessages = consoleMessages
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const terminalScrollRef = useRef<HTMLDivElement>(null)
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([])
+  const [isScrolledToBottom, setIsScrolledToBottom] = useState(true)
   const workspace = "nody" // You can make this dynamic if needed
 
   // Auto-scroll to bottom when new messages arrive
@@ -35,6 +37,22 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
       scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
     }
   }, [consoleMessages])
+
+  // Auto-scroll terminal when new output arrives (only if already scrolled to bottom)
+  useEffect(() => {
+    if (terminalScrollRef.current && isScrolledToBottom) {
+      terminalScrollRef.current.scrollTop = terminalScrollRef.current.scrollHeight
+    }
+  }, [commandHistory, isScrolledToBottom])
+
+  // Check if terminal is scrolled to bottom
+  const handleTerminalScroll = () => {
+    if (terminalScrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = terminalScrollRef.current
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 10 // 10px threshold
+      setIsScrolledToBottom(isAtBottom)
+    }
+  }
 
   const getLevelColor = (level: string) => {
     switch (level) {
@@ -46,6 +64,7 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
   }
 
   const executeCommand = async (command: string) => {
+    console.log('executeCommand called with:', command)
     if (!command.trim()) return
 
     setCommandHistory(prev => [...prev, {
@@ -55,24 +74,100 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
 
     try {
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
-      const response = await fetch(`${apiBaseUrl}/terminal/execute`, {
+      console.log('Executing command:', command, 'via', `${apiBaseUrl}/terminal/execute-stream`)
+
+      // Always use streaming for real-time output
+      const response = await fetch(`${apiBaseUrl}/terminal/execute-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command })
       })
 
-      const data = await response.json()
+      console.log('Response status:', response.status, response.statusText)
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()))
 
-      setCommandHistory(prev => {
-        const updated = [...prev]
-        const lastIndex = updated.length - 1
-        updated[lastIndex] = {
-          command,
-          output: data.stdout || data.output || '',
-          error: data.stderr || data.error || (data.success === false ? data.error : undefined)
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Response error:', errorText)
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
+      }
+
+      if (!response.body) {
+        throw new Error('No response body')
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let accumulatedOutput = ''
+      let accumulatedError = ''
+      let chunkCount = 0
+
+      console.log('=== Starting to read stream ===')
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          console.log('=== Stream finished ===')
+          console.log('Final accumulated output length:', accumulatedOutput.length)
+          break
         }
-        return updated
-      })
+
+        chunkCount++
+        const chunk = decoder.decode(value)
+        console.log(`=== Chunk ${chunkCount} (${chunk.length} bytes) ===`)
+        console.log('Raw chunk:', JSON.stringify(chunk))
+        const lines = chunk.split('\n')
+        console.log(`Split into ${lines.length} lines`)
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.slice(6)
+              console.log('JSON string:', jsonStr)
+              const data = JSON.parse(jsonStr)
+              console.log('Parsed data:', data)
+              if (data.output) {
+                accumulatedOutput += data.output
+                console.log('Accumulated output:', accumulatedOutput)
+                // Force React to update by creating a new object
+                setCommandHistory(prev => {
+                  const newHistory = [...prev]
+                  if (newHistory.length > 0) {
+                    newHistory[newHistory.length - 1] = {
+                      command,
+                      output: accumulatedOutput,
+                      error: accumulatedError || undefined
+                    }
+                  }
+                  return newHistory
+                })
+              }
+              if (data.error) {
+                accumulatedError += data.error
+                console.log('Accumulated error:', accumulatedError)
+                // Update the command history with the error
+                setCommandHistory(prev => {
+                  const newHistory = [...prev]
+                  if (newHistory.length > 0) {
+                    newHistory[newHistory.length - 1] = {
+                      command,
+                      output: accumulatedOutput || undefined,
+                      error: accumulatedError
+                    }
+                  }
+                  return newHistory
+                })
+              }
+              if (data.done) {
+                console.log('Command finished')
+                break
+              }
+            } catch (e) {
+              console.error('JSON parse error:', e, 'for line:', line)
+            }
+          }
+        }
+      }
     } catch (error) {
       setCommandHistory(prev => {
         const updated = [...prev]
@@ -144,7 +239,7 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
             [data-terminal-wrapper] {
               height: 100% !important;
               max-height: 100% !important;
-              overflow: hidden !important;
+              overflow: auto !important;
               display: flex !important;
               flex-direction: column !important;
               min-height: 0 !important;
@@ -153,8 +248,8 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
             }
             [data-terminal-wrapper] > div {
               flex: 1 1 auto !important;
-              overflow: auto !important;
-              max-height: 100% !important;
+              overflow: visible !important;
+              max-height: none !important;
               min-height: 0 !important;
               padding: 0 !important;
               margin: 0 !important;
@@ -190,8 +285,8 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
             [data-terminal-wrapper] .terminal-container,
             [data-terminal-wrapper] > div,
             [data-terminal-wrapper] > div > div {
-              max-height: 100% !important;
-              overflow: hidden !important;
+              max-height: none !important;
+              overflow: visible !important;
               background: hsl(var(--background)) !important;
               padding: 0 !important;
               margin: 0 !important;
@@ -216,7 +311,12 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
               display: none !important;
             }
           `}</style>
-          <div data-terminal-wrapper style={{ height: '100%', maxHeight: '100%' }}>
+          <div
+            data-terminal-wrapper
+            ref={terminalScrollRef}
+            onScroll={handleTerminalScroll}
+            style={{ height: '100%', maxHeight: '100%', overflow: 'auto' }}
+          >
             <TerminalUI
               name=""
               colorMode={ColorMode.Dark}
@@ -229,7 +329,9 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
                 commandHistory.map((item, idx) => (
                   <div key={idx}>
                     <TerminalOutput>$ {item.command}</TerminalOutput>
-                    {item.output && <TerminalOutput>{item.output}</TerminalOutput>}
+                    {item.output && item.output.split('\n').map((line, lineIdx) => (
+                      <TerminalOutput key={lineIdx}>{line || '\u00A0'}</TerminalOutput>
+                    ))}
                     {item.error && <TerminalOutput><span className="text-red-500">{item.error}</span></TerminalOutput>}
                   </div>
                 ))
