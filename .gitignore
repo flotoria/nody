@@ -181,3 +181,7 @@ storybook-static/
 
 # Turbo
 .turbo
+
+__pycache__
+canvas/
+.venv/
