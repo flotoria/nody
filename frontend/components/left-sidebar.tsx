@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Box, Database, Sparkles, Zap, Code, Settings, Code2, FileText } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { FileNode, NodeMetadata } from "@/lib/api"
@@ -63,6 +63,14 @@ interface LeftSidebarProps {
 
 export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpdateDescription }: LeftSidebarProps) {
   const [selectedCategory, setSelectedCategory] = useState("files")
+  const [activeTab, setActiveTab] = useState("nodes")
+
+  // Auto-switch to inspector tab when a node is selected
+  useEffect(() => {
+    if (selectedNode) {
+      setActiveTab("inspector")
+    }
+  }, [selectedNode])
 
   const handleDragStart = (e: React.DragEvent, nodeData: { label: string; type: string }) => {
     e.dataTransfer.setData("application/json", JSON.stringify(nodeData))
@@ -71,17 +79,19 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
 
   return (
     <div className="w-80 h-full shrink-0 neu-raised-sm bg-card flex flex-col">
-      <Tabs defaultValue="nodes" className="flex-1 flex flex-col">
-        <TabsList className="h-12 neu-inset-sm m-0 rounded-none border-b border-border">
-          <TabsTrigger value="nodes" className="flex-1 data-[state=active]:neu-pressed">
-            <Box className="w-4 h-4 mr-2" />
-            Nodes
-          </TabsTrigger>
-          <TabsTrigger value="inspector" className="flex-1 data-[state=active]:neu-pressed">
-            <Settings className="w-4 h-4 mr-2" />
-            Inspector
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+        <div className="h-12 flex items-center justify-center border-b border-border">
+          <TabsList className="h-8 w-fit neu-inset-sm">
+            <TabsTrigger value="nodes" className="data-[state=active]:neu-pressed px-4">
+              <Box className="w-4 h-4 mr-2" />
+              Nodes
+            </TabsTrigger>
+            <TabsTrigger value="inspector" className="data-[state=active]:neu-pressed px-4">
+              <Settings className="w-4 h-4 mr-2" />
+              Inspector
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="nodes" className="flex-1 overflow-y-auto custom-scrollbar m-0">
           {/* Category selector */}

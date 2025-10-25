@@ -4,22 +4,51 @@ import { Terminal, Users, Clock, X, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useEffect, useRef } from "react"
 
-export function BottomDock() {
+interface ConsoleMessage {
+  timestamp: string
+  level: 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG'
+  message: string
+}
+
+interface BottomDockProps {
+  consoleMessages?: ConsoleMessage[]
+}
+
+export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
+  const allMessages = consoleMessages
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
+    }
+  }, [consoleMessages])
+
+  const getLevelColor = (level: string) => {
+    switch (level) {
+      case 'SUCCESS': return 'text-green-400'
+      case 'ERROR': return 'text-red-400'
+      case 'DEBUG': return 'text-cyan-400'
+      default: return 'text-primary'
+    }
+  }
   return (
     <div className="h-64 shrink-0 neu-inset bg-background flex flex-col">
       <Tabs defaultValue="console" className="flex-1 flex flex-col">
         <div className="h-12 flex items-center justify-between px-4 border-b border-border">
           <TabsList className="h-8 bg-transparent p-0 gap-1">
-            <TabsTrigger value="console" className="data-[state=active]:neu-raised-sm">
+            <TabsTrigger value="console" className="data-[state=active]:neu-raised-sm data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20">
               <Terminal className="w-4 h-4 mr-2" />
               Console
             </TabsTrigger>
-            <TabsTrigger value="terminal" className="data-[state=active]:neu-raised-sm">
+            <TabsTrigger value="terminal" className="data-[state=active]:neu-raised-sm data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20">
               <Users className="w-4 h-4 mr-2" />
               Terminal
             </TabsTrigger>
-            <TabsTrigger value="timeline" className="data-[state=active]:neu-raised-sm">
+            <TabsTrigger value="timeline" className="data-[state=active]:neu-raised-sm data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20">
               <Clock className="w-4 h-4 mr-2" />
               Timeline
             </TabsTrigger>
@@ -36,30 +65,21 @@ export function BottomDock() {
         </div>
 
         <TabsContent value="console" className="flex-1 overflow-hidden m-0">
-          <ScrollArea className="h-full custom-scrollbar">
-            <div className="p-4 space-y-2 font-mono text-xs">
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">[12:34:56]</span>
-                <span className="text-primary">INFO</span>
-                <span className="text-foreground">NodeFlow initialized</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">[12:34:57]</span>
-                <span className="text-green-400">SUCCESS</span>
-                <span className="text-foreground">Canvas loaded with 3 nodes</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">[12:34:58]</span>
-                <span className="text-primary">INFO</span>
-                <span className="text-foreground">Ready for development</span>
-              </div>
-              <div className="flex gap-2">
-                <span className="text-muted-foreground">[12:35:02]</span>
-                <span className="text-cyan-400">DEBUG</span>
-                <span className="text-foreground">Node 'GPT-4 Process' selected</span>
-              </div>
+          <div className="h-full overflow-y-auto custom-scrollbar" ref={scrollAreaRef}>
+            <div className="p-4 pt-2 space-y-2 font-mono text-xs">
+              {allMessages.length === 0 ? (
+                <div className="text-muted-foreground">No console output yet...</div>
+              ) : (
+                allMessages.map((msg, index) => (
+                  <div key={index} className="flex gap-2">
+                    <span className="text-muted-foreground">[{msg.timestamp}]</span>
+                    <span className={getLevelColor(msg.level)}>{msg.level}</span>
+                    <span className="text-foreground">{msg.message}</span>
+                  </div>
+                ))
+              )}
             </div>
-          </ScrollArea>
+          </div>
         </TabsContent>
 
         <TabsContent value="terminal" className="flex-1 overflow-hidden m-0">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { LeftSidebar } from "@/components/left-sidebar"
 import { Canvas } from "@/components/canvas"
 import { RightSidebar } from "@/components/right-sidebar"
@@ -11,11 +11,45 @@ import { Home } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 
+interface ConsoleMessage {
+  timestamp: string
+  level: 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG'
+  message: string
+}
+
 export default function NodeFlowPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [nodes, setNodes] = useState<FileNode[]>([])
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
+  const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
+
+  // Poll for real-time output messages
+  useEffect(() => {
+    const pollOutput = async () => {
+      try {
+        const output = await FileAPI.getOutput()
+        if (output.messages && output.messages.length > 0) {
+          const formattedMessages = output.messages.map(msg => ({
+            timestamp: msg.timestamp,
+            level: msg.level as 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG',
+            message: msg.message
+          }))
+          setConsoleMessages(formattedMessages)
+        }
+      } catch (error) {
+        console.error('Failed to fetch output:', error)
+      }
+    }
+
+    // Poll every 500ms when running
+    const interval = setInterval(pollOutput, 500)
+    
+    // Initial poll
+    pollOutput()
+
+    return () => clearInterval(interval)
+  }, [isRunning])
 
   const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
     setNodes(updatedNodes)
@@ -34,6 +68,26 @@ export default function NodeFlowPage() {
       setMetadata(updatedMetadata)
     } catch (error) {
       console.error('Main page: Failed to update description:', error)
+    }
+  }
+
+  const handleToggleRun = async () => {
+    if (!isRunning) {
+      setIsRunning(true)
+      try {
+        await FileAPI.runProject()
+        // Refresh files and metadata after running
+        const files = await FileAPI.getFiles()
+        const metadata = await FileAPI.getMetadata()
+        setNodes(files)
+        setMetadata(metadata)
+      } catch (error) {
+        console.error('Failed to run project:', error)
+      } finally {
+        setIsRunning(false)
+      }
+    } else {
+      setIsRunning(false)
     }
   }
 
@@ -59,11 +113,11 @@ export default function NodeFlowPage() {
           selectedNode={selectedNode}
           onSelectNode={setSelectedNode}
           isRunning={isRunning}
-          onToggleRun={() => setIsRunning(!isRunning)}
+          onToggleRun={handleToggleRun}
           onDataChange={handleDataChange}
         />
 
-        <BottomDock />
+        <BottomDock consoleMessages={consoleMessages} />
       </div>
 
       <RightSidebar />

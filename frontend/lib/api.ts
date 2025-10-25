@@ -64,7 +64,7 @@ export class FileAPI {
     }
   }
 
-  static async createFile(fileCreate: FileCreate): Promise<FileNode> {
+  static async createFile(fileCreate: FileCreate): Promise<{ success: boolean; data?: FileNode; error?: string }> {
     const response = await fetch(`${API_BASE_URL}/files`, {
       method: 'POST',
       headers: {
@@ -73,9 +73,14 @@ export class FileAPI {
       body: JSON.stringify(fileCreate),
     })
     if (!response.ok) {
-      throw new Error('Failed to create file')
+      const errorData = await response.json().catch(() => ({}))
+      return { 
+        success: false, 
+        error: errorData.detail || 'Failed to create file' 
+      }
     }
-    return response.json()
+    const data = await response.json()
+    return { success: true, data }
   }
 
   static async deleteFile(fileId: string): Promise<void> {
@@ -120,5 +125,37 @@ export class FileAPI {
       throw new Error('Failed to fetch metadata')
     }
     return response.json()
+  }
+
+  static async getOutput(): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
+    const response = await fetch(`${API_BASE_URL}/output`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch output')
+    }
+    return response.json()
+  }
+
+  static async clearOutput(): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/output/clear`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      throw new Error('Failed to clear output')
+    }
+  }
+
+  static async runProject(): Promise<{ success: boolean; progress?: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/run`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      return { 
+        success: false, 
+        progress: errorData.progress || [] 
+      }
+    }
+    const data = await response.json()
+    return { success: true, progress: data.progress || [] }
   }
 }
