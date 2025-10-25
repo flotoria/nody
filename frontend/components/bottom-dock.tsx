@@ -54,7 +54,8 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
     }])
 
     try {
-      const response = await fetch('/api/execute', {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiBaseUrl}/terminal/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ command })
@@ -67,8 +68,8 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
         const lastIndex = updated.length - 1
         updated[lastIndex] = {
           command,
-          output: data.output || data.stdout || '',
-          error: data.error || data.stderr
+          output: data.stdout || data.output || '',
+          error: data.stderr || data.error || (data.success === false ? data.error : undefined)
         }
         return updated
       })
@@ -76,9 +77,15 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
       setCommandHistory(prev => {
         const updated = [...prev]
         const lastIndex = updated.length - 1
+        let errorMessage = 'Command execution failed'
+
+        if (error instanceof Error) {
+          errorMessage = error.message
+        }
+
         updated[lastIndex] = {
           command,
-          error: error instanceof Error ? error.message : 'Command execution failed'
+          error: errorMessage
         }
         return updated
       })

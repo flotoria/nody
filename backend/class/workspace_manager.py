@@ -9,9 +9,11 @@ class WorkspaceManager:
         if canvas_dir is None:
             # Default to parent directory's canvas/ folder (nody/canvas/)
             canvas_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "canvas")
-        self.canvas_dir = canvas_dir
-        os.makedirs(canvas_dir, exist_ok=True)
-        self.active_workspace: Optional[str] = None
+        self.canvas_dir = os.path.abspath(canvas_dir)  # Make absolute path
+        os.makedirs(self.canvas_dir, exist_ok=True)
+        self.active_workspace: Optional[str] = self.canvas_dir
+        print(f"DEBUG: WorkspaceManager initialized with canvas_dir: {self.canvas_dir}")
+        print(f"DEBUG: Active workspace set to: {self.active_workspace}")
     
     def get_active_workspace(self) -> Optional[str]:
         """Get current active workspace path"""
