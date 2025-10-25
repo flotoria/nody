@@ -9,6 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { FolderOpen, Bot } from "lucide-react"
 import RaysBackground from "@/components/rays-background"
 import Image from "next/image"
+import NodyInitial from "@/assets/nody_initial.png"
+import NodyLogo from "@/assets/nody.png"
 
 type Message = { role: "user" | "assistant"; content: string }
 
@@ -97,7 +99,7 @@ export default function OnboardingPage() {
           <div className="text-center mb-8 relative">
             <div className="inline-block mx-auto logo-shine">
               <Image
-                src="/nody.png"
+                src={NodyLogo}
                 alt="Nody"
                 width={720}
                 height={220}
@@ -160,13 +162,21 @@ export default function OnboardingPage() {
                   {messages.map((m, i) => (
                     <div key={i} className={`flex items-start gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                       {m.role === "assistant" && (
-                        <div className="mt-0.5 text-muted-foreground">
-                          <Bot className="w-4 h-4" />
+                        <div className="self-end mb-0.5 w-6 h-6 rounded-full ring-1 ring-border bg-card/60 flex items-center justify-center p-0.5">
+                          <Image
+                            src={NodyInitial}
+                            alt="Nody"
+                            width={16}
+                            height={16}
+                            className="w-4 h-4 object-contain"
+                          />
                         </div>
                       )}
                       <div
-                        className={`max-w-[80%] rounded-md px-3 py-2 text-sm ${
-                          m.role === "user" ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground"
+                        className={`relative max-w-[80%] rounded-lg px-4 py-3 text-sm ${
+                          m.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-br-none"
+                            : "bg-neutral-900 text-neutral-100 border border-border shadow-sm rounded-bl-none"
                         }`}
                       >
                         {m.content}
