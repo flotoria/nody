@@ -240,12 +240,17 @@ async def get_folders():
 
 @app.post("/folders", response_model=FolderNode)
 async def create_folder(folder_create: FolderCreate):
-    """Create a new folder node"""
+    """Create a new folder node and corresponding directory in filesystem"""
     try:
         metadata = file_db.load_metadata()
         
         # Generate unique folder ID
         folder_id = f"folder_{len([k for k in metadata.keys() if k.startswith('folder_')]) + 1}"
+        
+        # Create actual directory in canvas/nodes
+        folder_path = CANVAS_DIR / folder_create.name
+        folder_path.mkdir(parents=True, exist_ok=True)
+        print(f"Created directory: {folder_path}")
         
         # Create folder metadata
         folder_data = {
@@ -259,7 +264,8 @@ async def create_folder(folder_create: FolderCreate):
             "isExpanded": True,
             "containedFiles": [],
             "parentFolder": folder_create.parentFolder,
-            "description": f"Folder: {folder_create.name}"
+            "description": f"Folder: {folder_create.name}",
+            "folderPath": folder_create.name  # Store the folder path
         }
         
         metadata[folder_id] = folder_data
@@ -306,20 +312,38 @@ async def update_folder(folder_id: str, folder_update: FolderUpdate):
 
 @app.delete("/folders/{folder_id}")
 async def delete_folder(folder_id: str):
-    """Delete a folder node"""
+    """Delete a folder node and its directory from filesystem"""
     try:
         metadata = file_db.load_metadata()
         
         if folder_id not in metadata or metadata[folder_id].get("type") != "folder":
             raise HTTPException(status_code=404, detail="Folder not found")
         
+        # Get folder path and delete directory if it exists
+        folder_name = metadata[folder_id].get("name")
+        if folder_name:
+            folder_path = CANVAS_DIR / folder_name
+            if folder_path.exists() and folder_path.is_dir():
+                import shutil
+                shutil.rmtree(folder_path)
+                print(f"Deleted directory: {folder_path}")
+        
         # Remove folder from metadata
         del metadata[folder_id]
         
-        # Remove parentFolder reference from contained files
+        # Delete all contained files (both from filesystem and metadata)
+        files_to_delete = []
         for node_id, node_data in metadata.items():
             if node_data.get("parentFolder") == folder_id:
-                node_data["parentFolder"] = None
+                files_to_delete.append(node_id)
+        
+        # Delete each contained file
+        for file_id in files_to_delete:
+            try:
+                file_db.delete_file(file_id)
+                del metadata[file_id]
+            except Exception as e:
+                print(f"Warning: Failed to delete contained file {file_id}: {e}")
         
         file_db.save_metadata(metadata)
         
@@ -338,6 +362,34 @@ async def move_file_to_folder(file_id: str, folder_id: Optional[str] = None):
         
         if file_id not in metadata:
             raise HTTPException(status_code=404, detail="File not found")
+        
+        # Get file name and old/new folder paths
+        file_name = metadata[file_id].get("fileName")
+        if file_name:
+            # Extract base filename (remove folder path if present)
+            base_file_name = file_name.split("/")[-1] if "/" in file_name else file_name
+            
+            # Get old folder path
+            old_folder_id = metadata[file_id].get("parentFolder")
+            old_folder_name = metadata[old_folder_id].get("name") if old_folder_id and old_folder_id in metadata else None
+            old_file_path = CANVAS_DIR / old_folder_name / base_file_name if old_folder_name else CANVAS_DIR / base_file_name
+            
+            # Get new folder path
+            new_folder_name = metadata[folder_id].get("name") if folder_id and folder_id in metadata else None
+            new_file_path = CANVAS_DIR / new_folder_name / base_file_name if new_folder_name else CANVAS_DIR / base_file_name
+            
+            # Move the actual file if it exists
+            if old_file_path.exists() and old_file_path != new_file_path:
+                new_file_path.parent.mkdir(parents=True, exist_ok=True)
+                import shutil
+                shutil.move(str(old_file_path), str(new_file_path))
+                print(f"Moved file from {old_file_path} to {new_file_path}")
+                
+                # Update fileName in metadata to reflect new location
+                if new_folder_name:
+                    metadata[file_id]["fileName"] = f"{new_folder_name}/{base_file_name}"
+                else:
+                    metadata[file_id]["fileName"] = base_file_name
         
         # Update file's parent folder
         old_folder_id = metadata[file_id].get("parentFolder")
