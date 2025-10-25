@@ -12,6 +12,21 @@ from agent import create_file_system_agent
 # Load environment variables
 load_dotenv()
 
+import sys
+
+# Add the 'class' directory to Python path to import from it
+class_dir = os.path.join(os.path.dirname(__file__), 'class')
+if class_dir not in sys.path:
+    sys.path.insert(0, class_dir)
+
+try:
+    from workspace_manager import WorkspaceManager
+    from terminal_executor import TerminalExecutor
+except ImportError as e:
+    print(f"Error importing workspace/terminal modules: {e}")
+    WorkspaceManager = None
+    TerminalExecutor = None
+
 app = FastAPI(title="Nody VDE Backend", version="0.1.0")
 
 # CORS middleware for frontend communication
@@ -673,6 +688,80 @@ async def get_letta_info():
 
 # Load existing files on startup
 load_existing_files()
+
+# Initialize workspace manager and terminal executor
+if WorkspaceManager and TerminalExecutor:
+    workspace_manager = WorkspaceManager()
+    terminal = TerminalExecutor()
+else:
+    workspace_manager = None
+    terminal = None
+    print("Workspace and Terminal features disabled")
+
+# ==================== WORKSPACE ENDPOINTS ====================
+
+@app.get("/workspace/list")
+async def list_workspaces():
+    """List all workspaces in canvas directory"""
+    workspaces = workspace_manager.list_workspaces()
+    active = workspace_manager.get_active_workspace()
+    
+    return {
+        "workspaces": workspaces,
+        "active_workspace": active
+    }
+
+@app.post("/workspace/set-active")
+async def set_active_workspace(workspace_name: str):
+    """Set active workspace"""
+    result = workspace_manager.set_active_workspace(workspace_name)
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+@app.get("/workspace/active")
+async def get_active_workspace():
+    """Get active workspace"""
+    # Ensure active workspace is set (auto-selects first workspace if needed)
+    workspace_info = workspace_manager.ensure_active_workspace()
+    if not workspace_info["success"]:
+        return {"workspace": None}
+    return {"workspace": workspace_info["workspace"]}
+
+# ==================== TERMINAL ENDPOINTS ====================
+
+class TerminalCommand(BaseModel):
+    command: str
+
+@app.post("/terminal/execute")
+async def execute_terminal_command(cmd: TerminalCommand):
+    """
+    Execute ANY terminal command in workspace.
+    
+    CRITICAL: Command executes ONLY in backend/canvas/workspace/
+    """
+    # Get workspace
+    workspace_info = workspace_manager.ensure_active_workspace()
+    if not workspace_info["success"]:
+        raise HTTPException(status_code=400, detail=workspace_info["error"])
+    
+    workspace_path = workspace_info["workspace"]
+    
+    # Execute command in workspace
+    result = terminal.execute(cmd.command, workspace_path)
+    
+    # If command was git clone, update active workspace
+    if cmd.command.startswith("git clone"):
+        # Extract repo name from clone command
+        # git clone https://github.com/user/repo.git
+        parts = cmd.command.split()
+        if len(parts) >= 3:
+            repo_url = parts[-1]  # Last part is the URL
+            repo_name = repo_url.split('/')[-1].replace('.git', '')
+            # Auto-set as active workspace
+            workspace_manager.set_active_workspace(repo_name)
+    
+    return result
 
 if __name__ == "__main__":
     import uvicorn
