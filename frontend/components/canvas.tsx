@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Connection,
   ConnectionMode,
   Edge,
@@ -18,6 +19,8 @@ import ReactFlow, {
   useNodesState,
   Handle,
   Position,
+  NodeResizer,
+  NodeChange,
 } from "reactflow"
 import "reactflow/dist/style.css"
 import type React from "react"
@@ -25,6 +28,7 @@ import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CodeEditor } from "@/components/code-editor"
 import { FileNamingModal } from "@/components/file-naming-modal"
+import { FolderNamingModal } from "@/components/folder-naming-modal"
 import { EdgeCreationModal } from "@/components/edge-creation-modal"
 import {
   FileAPI,
@@ -99,6 +103,7 @@ type FileNodeData = {
   isModified?: boolean
   parentFolder?: string | null
   generating: boolean
+  description?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
   onDelete: (id: string) => void
@@ -112,6 +117,7 @@ type FolderNodeData = {
   height: number
   isExpanded: boolean
   containedFiles: string[]
+  onDelete?: (id: string) => void
 }
 
 type GenericNodeData = {
@@ -181,7 +187,7 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
           >
             Open
           </Button>
-          {!hasExistingContent && (
+          {!hasExistingContent && data.description && data.description.trim() && (
             <Button
               size="sm"
               variant="ghost"
@@ -218,6 +224,24 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
       }`}
       style={{ width: data.width, height }}
     >
+      <NodeResizer
+        color="#ff0071"
+        isVisible={selected}
+        minWidth={300}
+        minHeight={200}
+        handleStyle={{
+          width: '20px',
+          height: '20px',
+          borderRadius: '4px',
+          backgroundColor: '#ff0071',
+          border: '2px solid white',
+          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+        }}
+        lineStyle={{
+          borderColor: '#ff0071',
+          borderWidth: '2px',
+        }}
+      />
       <NodeHandles isConnectable={isConnectable} />
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-3 border-b border-primary/30 bg-primary/15 px-4 py-3">
@@ -230,6 +254,14 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
               {data.containedFiles.length} file{data.containedFiles.length === 1 ? "" : "s"}
             </span>
           </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 text-destructive hover:text-destructive/80"
+            onClick={() => data.onDelete?.(data.folderId)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </div>
         {data.isExpanded ? (
           <div className="flex-1 px-4 py-3 text-xs text-muted-foreground">
@@ -274,7 +306,7 @@ const nodeTypes = {
 } satisfies NodeTypes
 
 function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
-  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([])
+  const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
   const [metadataRecords, setMetadataRecords] = useState<Record<string, NodeMetadata>>({})
@@ -284,7 +316,44 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   const [editorNodeId, setEditorNodeId] = useState<string | null>(null)
   const [customGenericNodes, setCustomGenericNodes] = useState<Node<GenericNodeData>[]>([])
   const [showFileModal, setShowFileModal] = useState(false)
+  const [showFolderModal, setShowFolderModal] = useState(false)
   const [pendingFilePosition, setPendingFilePosition] = useState<{ x: number; y: number } | null>(null)
+  const [pendingFolderPosition, setPendingFolderPosition] = useState<{ x: number; y: number } | null>(null)
+
+  // Custom onNodesChange handler to detect resize changes
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    onNodesChangeBase(changes)
+    
+    // Handle resize changes for folders (optimized for smoothness)
+    for (const change of changes) {
+      if (change.type === 'dimensions' && change.dimensions) {
+        const node = flowNodes.find(n => n.id === change.id)
+        if (node?.type === 'folderNode') {
+          // Update folder dimensions in real-time (smooth UI update)
+          const width = change.dimensions.width
+          const height = change.dimensions.height
+          
+          // Update the node's style immediately for smooth resizing
+          setFlowNodes(prevNodes => 
+            prevNodes.map(n => 
+              n.id === change.id 
+                ? { ...n, style: { ...n.style, width, height } }
+                : n
+            )
+          )
+          
+          // Debounce backend updates to avoid performance issues
+          // Only update backend when resize is complete (not during dragging)
+          if (change.dimensions.width && change.dimensions.height) {
+            // Use setTimeout to debounce rapid resize events
+            setTimeout(() => {
+              FileAPI.updateFolder(change.id, { width, height }).catch(console.error)
+            }, 100)
+          }
+        }
+      }
+    }
+  }, [onNodesChangeBase, flowNodes])
   const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
   const [expandedNode, setExpandedNode] = useState<string | null>(null)
@@ -442,6 +511,38 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     [fileRecords],
   )
 
+  const handleFolderDelete = useCallback(
+    async (id: string) => {
+      const folder = folderRecords.find((record) => record.id === id)
+      const containedFileCount = folder?.containedFiles?.length || 0
+      const confirmMessage = containedFileCount > 0
+        ? `Delete "${folder?.name ?? "this folder"}" and all ${containedFileCount} file(s) inside?`
+        : `Delete "${folder?.name ?? "this folder"}"?`
+      
+      const confirmed =
+        typeof window === "undefined" ||
+        window.confirm(confirmMessage)
+      if (!confirmed) return
+
+      try {
+        await FileAPI.deleteFolder(id)
+        const [files, metadata, folders] = await Promise.all([
+          FileAPI.getFiles(),
+          FileAPI.getMetadata(),
+          FileAPI.getFolders(),
+        ])
+        setFileRecords(files)
+        setMetadataRecords(metadata)
+        setFolderRecords(folders)
+        toast.success("Folder deleted")
+      } catch (error) {
+        console.error("Failed to delete folder:", error)
+        toast.error("Failed to delete folder")
+      }
+    },
+    [folderRecords],
+  )
+
   const handleGenerateCode = useCallback(
     async (id: string) => {
       setGeneratingNodeId(id)
@@ -522,6 +623,36 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     [defaultFilePosition, pendingFilePosition],
   )
 
+  const handleFolderCreate = useCallback(
+    async (folderName: string) => {
+      if (!pendingFolderPosition) return
+
+      try {
+        const width = 640
+        const height = 420
+        const folderX = pendingFolderPosition.x - width / 2
+        const folderY = pendingFolderPosition.y - FOLDER_HEADER_HEIGHT / 2
+
+        const created = await FileAPI.createFolder(folderName, folderX, folderY, width, height)
+        const [folders, metadata] = await Promise.all([
+          FileAPI.getFolders(),
+          FileAPI.getMetadata(),
+        ])
+        setFolderRecords(folders)
+        setMetadataRecords(metadata)
+        setSelectedNodeId(created.id)
+        onSelectNode(created.id)
+        toast.success("Folder created successfully")
+      } catch (error) {
+        console.error("Failed to create folder:", error)
+        toast.error("Failed to create folder")
+      } finally {
+        setPendingFolderPosition(null)
+      }
+    },
+    [pendingFolderPosition, onSelectNode],
+  )
+
   const rebuildNodes = useCallback((): Node<CanvasNodeData>[] => {
     const nodes: Node<CanvasNodeData>[] = []
 
@@ -543,6 +674,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isModified: record.isModified,
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
+          description: meta?.description,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
           onDelete: handleFileDelete,
@@ -551,6 +683,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         draggable: true,
         selectable: true,
         connectable: true,
+        parentId: record.parentFolder ?? undefined,
+        extent: record.parentFolder ? "parent" : undefined,
       })
     }
 
@@ -572,10 +706,15 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           height,
           isExpanded: folder.isExpanded,
           containedFiles: folder.containedFiles,
+          onDelete: handleFolderDelete,
         },
         draggable: true,
         selectable: true,
-        style: { zIndex: 1 },
+        style: { 
+          width: folder.width, 
+          height: height,
+          zIndex: 1 
+        },
         connectable: true,
       })
     }
@@ -760,29 +899,36 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         })
 
         const targetFolderId = containingFolder ? containingFolder.id : null
-        const currentParent = null // parentFolder is not in metadata
+        const currentParent = node.data.parentFolder
 
         if (currentParent !== targetFolderId) {
           try {
             await FileAPI.moveFileToFolder(fileId, targetFolderId)
+            await refreshMetadata()
           } catch (error) {
             console.error("Failed to move file to folder:", error)
             toast.error("Failed to move file to folder")
           }
         }
-
-        await refreshMetadata()
       }
 
       if (node.type === "folderNode") {
         const folderId = node.id
         try {
-          await FileAPI.updateFolder(folderId, { x: node.position.x, y: node.position.y })
+          // Update folder position and dimensions if resized
+          const updates: any = { x: node.position.x, y: node.position.y }
+          if (node.style?.width) {
+            updates.width = node.style.width
+          }
+          if (node.style?.height) {
+            updates.height = node.style.height
+          }
+          await FileAPI.updateFolder(folderId, updates)
+          await refreshMetadata()
         } catch (error) {
-          console.error("Failed to update folder position:", error)
-          toast.error("Failed to update folder position")
+          console.error("Failed to update folder:", error)
+          toast.error("Failed to update folder")
         }
-        await refreshMetadata()
       }
       if (node.type === "genericNode") {
         setCustomGenericNodes((prev) =>
@@ -871,27 +1017,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       }
 
       if (payload.type === "folder" && payload.isSpecial) {
-        const width = 640
-        const height = 420
-        const folderName = payload.label || "Folder"
-        const folderX = position.x - width / 2
-        const folderY = position.y - FOLDER_HEADER_HEIGHT / 2
-
-        try {
-          const created = await FileAPI.createFolder(folderName, folderX, folderY, width, height)
-          const [folders, metadata] = await Promise.all([
-            FileAPI.getFolders(),
-            FileAPI.getMetadata(),
-          ])
-          setFolderRecords(folders)
-          setMetadataRecords(metadata)
-          setSelectedNodeId(created.id)
-          onSelectNode(created.id)
-        } catch (error) {
-          console.error("Failed to create folder:", error)
-          toast.error("Failed to create folder")
-        }
-
+        setPendingFolderPosition({
+          x: position.x,
+          y: position.y,
+        })
+        setShowFolderModal(true)
         return
       }
 
@@ -957,8 +1087,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             className="bg-background"
             connectionMode={ConnectionMode.Loose}
             connectOnClick
+            proOptions={{ hideAttribution: true }}
           >
-            <Background gap={20} lineWidth={1} color="var(--border)" />
+            <Background variant={BackgroundVariant.Lines} gap={20} lineWidth={1} color="var(--border)" />
           </ReactFlow>
         </div>
       )}
@@ -1010,6 +1141,16 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         isOpen={showFileModal}
         onClose={() => setShowFileModal(false)}
         onCreateFile={handleFileCreate}
+      />
+
+      <FolderNamingModal
+        isOpen={showFolderModal}
+        onClose={() => {
+          setShowFolderModal(false)
+          setPendingFolderPosition(null)
+        }}
+        onCreateFolder={handleFolderCreate}
+        position={pendingFolderPosition || undefined}
       />
 
       <EdgeCreationModal

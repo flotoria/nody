@@ -3,15 +3,93 @@ Anthropic agent integration for AI-powered code generation.
 """
 import os
 import json
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 from fastapi import HTTPException
 
-from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR
+from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR, BACKEND_ROOT
 from models import FileNode
 from agents.file_system_agent import create_file_system_agent
 from utils import extract_structured_payload, sanitize_plan, position_for_index, infer_file_type_from_name
 from database import file_db, output_logger
+
+
+RUN_APP_SCRIPT_TEMPLATE = """#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BACKEND_DIR="${ROOT_DIR}/backend"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
+
+BACKEND_PID=""
+FRONTEND_PID=""
+PYTHON_BIN=()
+
+cleanup() {
+  local exit_code=$?
+  if [[ -n "${BACKEND_PID}" ]] && kill -0 "${BACKEND_PID}" 2>/dev/null; then
+    kill "${BACKEND_PID}" 2>/dev/null || true
+    wait "${BACKEND_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${FRONTEND_PID}" ]] && kill -0 "${FRONTEND_PID}" 2>/dev/null; then
+    kill "${FRONTEND_PID}" 2>/dev/null || true
+    wait "${FRONTEND_PID}" 2>/dev/null || true
+  fi
+  exit "${exit_code}"
+}
+trap cleanup EXIT INT TERM
+
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN=(python)
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=(python3)
+elif command -v py >/dev/null 2>&1; then
+  PYTHON_BIN=(py -3)
+else
+  echo "[run_app] error: no Python interpreter found in PATH" >&2
+  exit 1
+fi
+
+echo "[run_app] starting backend (uvicorn)..."
+(
+  cd "${BACKEND_DIR}"
+  if [[ -f ".venv/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    source ".venv/bin/activate"
+  elif [[ -f ".venv/Scripts/activate" ]]; then
+    # shellcheck disable=SC1091
+    source ".venv/Scripts/activate"
+  fi
+  exec "${PYTHON_BIN[@]}" -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+) &
+BACKEND_PID=$!
+
+sleep 2
+
+echo "[run_app] starting frontend (Next.js dev server)..."
+(
+  cd "${FRONTEND_DIR}"
+  if command -v pnpm >/dev/null 2>&1 && [[ -f "pnpm-lock.yaml" ]]; then
+    exec pnpm dev
+  elif command -v yarn >/dev/null 2>&1 && [[ -f "yarn.lock" ]]; then
+    exec yarn dev
+  else
+    exec npm run dev
+  fi
+) &
+FRONTEND_PID=$!
+
+echo "[run_app] backend PID=${BACKEND_PID}, frontend PID=${FRONTEND_PID}"
+echo "[run_app] press Ctrl+C to stop both services."
+
+wait -n "${BACKEND_PID}" "${FRONTEND_PID}"
+""".strip() + "\n"
+
+ROOT_RUN_APP_PATH = BACKEND_ROOT.parent / "scripts" / "run_app.sh"
+CANVAS_RUN_APP_PATH = CANVAS_DIR / "scripts" / "run_app.sh"
 
 
 class CodeGenerationService:
@@ -47,6 +125,32 @@ class CodeGenerationService:
             EDGES_FILE.write_text(json.dumps({"edges": edges}, indent=2, ensure_ascii=False), encoding="utf-8")
         except OSError as exc:
             print(f"Error saving edges: {exc}")
+
+    def _materialize_run_app_script(self, node_id: str, description: str, index: int, total_files: int):
+        """Create or update the run_app.sh launcher script in both canvas and root scripts directory."""
+        script_content = RUN_APP_SCRIPT_TEMPLATE
+        for target_path in (CANVAS_RUN_APP_PATH, ROOT_RUN_APP_PATH):
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(script_content, encoding="utf-8")
+            try:
+                os.chmod(target_path, 0o755)
+            except OSError:
+                pass
+
+        if node_id in file_db.files_db:
+            file_db.files_db[node_id].content = script_content
+
+        output_logger.write_output(
+            f"✅ [{index}/{total_files}] Generated scripts/run_app.sh launcher",
+            "SUCCESS",
+        )
+
+        return {
+            "node_id": node_id,
+            "file_name": "scripts/run_app.sh",
+            "description": description,
+            "code_length": len(script_content),
+        }
     
     async def plan_workspace_with_anthropic(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Request the Anthropic agent to design file and edge metadata for the canvas."""
@@ -241,6 +345,7 @@ Generate ONLY the code:"""
             
             # Write the generated code to the file
             file_path = CANVAS_DIR / file_name
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(generated_code, encoding='utf-8')
             
             # Update the node file content in files_db
@@ -263,48 +368,54 @@ Generate ONLY the code:"""
             output_logger.write_output(f"❌ ERROR generating {file_id}: {str(e)}", "ERROR")
             raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
     
+
     async def run_project(self) -> Dict[str, Any]:
         """Run the project by generating code for all node files based on metadata."""
         if not self.is_initialized():
             raise HTTPException(status_code=503, detail="Letta agent not initialized")
-        
+
         try:
-            # Clear previous output and start fresh
             output_logger.clear_output()
-            
-            # Load metadata
+
             metadata = file_db.load_metadata()
-            
+
             if not metadata:
-                output_logger.write_output("❌ No metadata found", "ERROR")
+                output_logger.write_output("No metadata found", "ERROR")
                 return {"message": "No metadata found", "generated_files": [], "progress": []}
-            
-            generated_files = []
+
+            generated_files: List[Dict[str, Any]] = []
             total_files = sum(1 for node_data in metadata.values() if node_data.get("type") == "file")
-            
+
             if total_files == 0:
-                output_logger.write_output("❌ No node file nodes found in metadata", "ERROR")
+                output_logger.write_output("No node file nodes found in metadata", "ERROR")
                 return {"message": "No node file nodes found", "generated_files": [], "progress": []}
-            
-            output_logger.write_output("🚀 Starting project generation...", "INFO")
-            output_logger.write_output(f"📋 Found {len(metadata)} nodes in metadata", "INFO")
-            output_logger.write_output(f"📁 Processing {total_files} node files...", "INFO")
-            
-            # Process each file node in metadata
+
+            output_logger.write_output("Starting project generation...", "INFO")
+            output_logger.write_output(f"Found {len(metadata)} nodes in metadata", "INFO")
+            output_logger.write_output(f"Processing {total_files} node files...", "INFO")
+
             for i, (node_id, node_data) in enumerate(metadata.items(), 1):
-                if node_data.get("type") == "file":
-                    description = node_data.get("description", "")
-                    file_name = node_data.get("fileName", f"file_{node_id}")
-                    
-                    if not description:
-                        output_logger.write_output(f"⏭️  [{i}/{total_files}] Skipping {file_name} (no description)", "INFO")
-                        continue
-                    
-                    output_logger.write_output(f"🔄 [{i}/{total_files}] Generating {file_name}...", "INFO")
-                    output_logger.write_output(f"   Description: {description}", "INFO")
-                    
-                    # Create prompt for code generation
-                    prompt = f"""Based on this description: "{description}", generate ONLY the complete code for a file named "{file_name}".
+                if node_data.get("type") != "file":
+                    continue
+
+                description = node_data.get("description", "")
+                file_name = node_data.get("fileName", f"file_{node_id}")
+
+                if not description:
+                    output_logger.write_output(f"[{i}/{total_files}] Skipping {file_name} (no description)", "INFO")
+                    continue
+
+                normalized_name = file_name.replace('\\', '/')
+                if normalized_name == "scripts/run_app.sh":
+                    output_logger.write_output(f"[{i}/{total_files}] Creating launcher script {file_name}...", "INFO")
+                    launcher_info = self._materialize_run_app_script(node_id, description, i, total_files)
+                    generated_files.append(launcher_info)
+                    continue
+
+                output_logger.write_output(f"[{i}/{total_files}] Generating {file_name}...", "INFO")
+                output_logger.write_output(f"   Description: {description}", "INFO")
+
+                prompt = f"""Based on this description: "{description}", generate ONLY the complete code for a file named "{file_name}".
 
 CRITICAL REQUIREMENTS:
 - Generate ONLY the raw code content
@@ -318,60 +429,61 @@ Description: {description}
 File name: {file_name}
 
 Generate ONLY the code:"""
+                
+                # Send to Anthropic agent
+                response = self.client.messages.create(
+                    model=self.agent_config["model"],
+                    max_tokens=4000,
+                    system=self.agent_config["system"],
+                    tools=self.agent_config["tools"],
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                # Extract the generated code from the response
+                generated_code = ""
+                for content_block in response.content:
+                    if content_block.type == "text" and content_block.text:
+                        generated_code = content_block.text
+                        break
+                
+                if generated_code:
+                    # Write the generated code to the file
+                    file_path = CANVAS_DIR / "nodes" / file_name
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    file_path.write_text(generated_code, encoding='utf-8')
                     
-                    # Send to Anthropic agent
-                    response = self.client.messages.create(
-                        model=self.agent_config["model"],
-                        max_tokens=4000,
-                        system=self.agent_config["system"],
-                        tools=self.agent_config["tools"],
-                        messages=[{"role": "user", "content": prompt}]
-                    )
+                    # Update the node file content in files_db
+                    if node_id in file_db.files_db:
+                        file_db.files_db[node_id].content = generated_code
                     
-                    # Extract the generated code from the response
-                    generated_code = ""
-                    for content_block in response.content:
-                        if content_block.type == "text" and content_block.text:
-                            generated_code = content_block.text
-                            break
+                    output_logger.write_output(f"✅ [{i}/{total_files}] Generated {file_name} ({len(generated_code)} chars)", "SUCCESS")
                     
-                    if generated_code:
-                        # Write the generated code to the file
-                        file_path = CANVAS_DIR / file_name
-                        file_path.write_text(generated_code, encoding='utf-8')
-                        
-                        # Update the node file content in files_db
-                        if node_id in file_db.files_db:
-                            file_db.files_db[node_id].content = generated_code
-                        
-                        output_logger.write_output(f"✅ [{i}/{total_files}] Generated {file_name} ({len(generated_code)} chars)", "SUCCESS")
-                        
-                        generated_files.append({
-                            "node_id": node_id,
-                            "file_name": file_name,
-                            "description": description,
-                            "code_length": len(generated_code)
-                        })
-                    else:
-                        output_logger.write_output(f"❌ [{i}/{total_files}] Failed to generate code for {file_name}", "ERROR")
+                    generated_files.append({
+                        "node_id": node_id,
+                        "file_name": file_name,
+                        "description": description,
+                        "code_length": len(generated_code)
+                    })
+                else:
+                    output_logger.write_output(f"❌ [{i}/{total_files}] Failed to generate code for {file_name}", "ERROR")
             
             output_logger.write_output(f"🎉 Generation complete!", "SUCCESS")
             output_logger.write_output(f"📊 Generated {len(generated_files)} node files successfully", "SUCCESS")
-            
             return {
                 "message": f"Generated code for {len(generated_files)} node files",
                 "generated_files": generated_files,
                 "total_processed": len(generated_files)
             }
-            
+
         except Exception as e:
-            output_logger.write_output(f"❌ ERROR: {str(e)}", "ERROR")
+            output_logger.write_output(f"Error generating project: {str(e)}", "ERROR")
             return {
                 "message": f"Error generating code: {str(e)}",
                 "generated_files": [],
                 "total_processed": 0
             }
-    
+
+
     async def chat_with_agent(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """Send a message to the Anthropic agent."""
         if not self.is_initialized():

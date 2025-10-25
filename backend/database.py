@@ -231,18 +231,26 @@ class FileDatabase:
     
     def delete_file(self, file_id: str):
         """Delete a file node."""
-        if file_id not in self.files_db:
+        # Check if file exists in metadata first
+        metadata = self.load_metadata()
+        if file_id not in metadata:
             raise ValueError("File not found")
         
+        # Get file path from metadata if not in memory
+        node_meta = metadata[file_id]
+        file_name = node_meta.get("fileName", f"{file_id}.txt")
+        
         # Remove node file from filesystem
-        file_path = CANVAS_DIR / self.files_db[file_id].filePath
+        file_path = CANVAS_DIR / file_name
         if file_path.exists():
             file_path.unlink()
         
         # Remove from metadata
         self.remove_node_metadata(file_id)
         
-        del self.files_db[file_id]
+        # Remove from in-memory database if it exists
+        if file_id in self.files_db:
+            del self.files_db[file_id]
 
 
 class OutputLogger:

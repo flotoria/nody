@@ -363,29 +363,18 @@ export class FileAPI {
 
   static async clearCanvas(): Promise<void> {
     try {
-      // Clear all files
-      const files = await this.getFiles()
-      for (const file of files) {
-        await this.deleteFile(file.id)
-      }
-      
-      // Clear edges by setting empty array
-      await fetch(`${API_BASE_URL}/edges`, {
+      // Use the new efficient canvas clear endpoint
+      const response = await fetch(`${API_BASE_URL}/canvas/clear`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ edges: [] }),
       })
       
-      // Clear metadata by setting empty object
-      await fetch(`${API_BASE_URL}/metadata`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || 'Failed to clear canvas')
+      }
     } catch (error) {
       console.error('Failed to clear canvas:', error)
       throw new Error('Failed to clear canvas')
@@ -419,6 +408,17 @@ export class FileAPI {
     }
     const data = await response.json()
     return { success: true, progress: data.progress || [] }
+  }
+
+  static async startApplication(): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/run-app`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Failed to start application')
+      throw new Error(errorText)
+    }
+    return response.json()
   }
 
   static async chat(messages: ChatMessage[]): Promise<ChatResponse> {

@@ -76,6 +76,7 @@ Guidelines:
 - Never wrap the JSON output in markdown code fences or add commentary outside the JSON.
 - While status is "collecting", assistant_message must include at least one targeted follow-up question that helps resolve the highest-priority missing information.
 - Once you have enough detail, set status to "ready", ensure missing_information is an empty array, provide the complete project_spec, and summarise the plan in assistant_message.
+- If the user clearly signals they are finished (e.g., "done", "build it now", "generate the spec"), stop asking follow-up questions, make reasonable assumptions for any remaining gaps, set status to "ready", clear missing_information, and return the best project_spec you can.
 """.strip()
 
 LETTA_METADATA_SYSTEM_PROMPT = """
@@ -89,6 +90,7 @@ Guidelines:
 - Produce 4-12 files covering backend, frontend, configuration, and data/model layers implied by the specification.
 - Choose reasonable directories that match the tech stack (e.g., Next.js -> "frontend/app", FastAPI -> "backend/api").
 - Descriptions must contain enough details for another agent to implement the file without additional context.
+- Edges must connect every file to every other file (a fully connected graph); add directional reasoning in each description so the dependency is clear.
 - Keep JSON valid, no trailing commas, no code fences, and no extra keys.
 """.strip()
 
