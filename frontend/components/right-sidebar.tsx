@@ -106,7 +106,7 @@ export function RightSidebar() {
   }
 
   return (
-    <div className="w-96 h-full shrink-0 neu-raised-sm bg-card flex flex-col">
+    <div className="h-full w-full neu-raised-sm bg-card flex flex-col">
       {/* Header */}
       <div className="h-12 neu-inset-sm border-b border-border flex items-center px-4 gap-2">
         <Sparkles className="w-5 h-5 text-primary" />

@@ -259,7 +259,8 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
       ))
     } catch (error) {
       console.error('Failed to save file:', error)
-      // You could add a toast notification here
+      // Re-throw the error so the CodeEditor can handle it
+      throw error
     }
   }, [])
 
@@ -386,7 +387,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
 
 
   return (
-    <div className="flex-1 relative overflow-hidden neu-inset bg-background">
+    <div className="h-full w-full relative overflow-hidden neu-inset bg-background">
       {loading ? (
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
@@ -585,21 +586,19 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
         onCreateFile={handleFileCreate}
       />
 
-      {/* Code Editor Overlay */}
+      {/* Code Editor Modal */}
       {expandedNode && (() => {
         const node = nodes.find(n => n.id === expandedNode)
         if (!node || node.type !== 'file') return null
         
         return (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <CodeEditor
-              content={node.content || ''}
-              fileType={node.fileType || 'text'}
-              onSave={(content) => handleFileSave(node.id, content)}
-              onClose={() => setExpandedNode(null)}
-              isModified={node.isModified}
-            />
-          </div>
+          <CodeEditor
+            content={node.content || ''}
+            fileType={node.fileType || 'text'}
+            onSave={(content) => handleFileSave(node.id, content)}
+            onClose={() => setExpandedNode(null)}
+            isModified={node.isModified}
+          />
         )
       })()}
 
