@@ -2,6 +2,7 @@
 Onboarding chat functionality using Groq API.
 """
 import json
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
@@ -15,8 +16,29 @@ from utils import extract_structured_payload
 class OnboardingService:
     """Handles project specification gathering through conversational interface."""
     
+    FINALIZATION_PATTERNS = [
+        re.compile(r"\b(done|finished|all set|that's all|that is all)\b", re.IGNORECASE),
+        re.compile(r"build it now", re.IGNORECASE),
+        re.compile(r"generate (the )?spec", re.IGNORECASE),
+        re.compile(r"ready to (build|generate)", re.IGNORECASE),
+        re.compile(r"start building", re.IGNORECASE),
+        re.compile(r"ship it", re.IGNORECASE),
+    ]
+
     def __init__(self):
         self.sessions: Dict[str, Dict[str, Any]] = {}
+    
+    def _user_requested_finalization(self, messages: List[Dict[str, str]]) -> bool:
+        """Return True if the most recent user message signals the conversation should conclude."""
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+            content = message.get("content") or ""
+            for pattern in self.FINALIZATION_PATTERNS:
+                if pattern.search(content):
+                    return True
+            break
+        return False
     
     async def invoke_groq(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """Send the conversation to Groq's chat completions API and return the response JSON."""
@@ -83,12 +105,25 @@ class OnboardingService:
         if not messages:
             raise HTTPException(status_code=400, detail="Messages cannot be empty")
 
+        force_finalize = self._user_requested_finalization(messages)
+
         # Build conversation payload for Groq
         groq_messages = [{"role": "system", "content": ONBOARDING_SYSTEM_PROMPT}]
         for message in messages:
             if message["role"] == "system":
                 continue  # System prompt managed internally
             groq_messages.append({"role": message["role"], "content": message["content"]})
+
+        if force_finalize:
+            groq_messages.append({
+                "role": "user",
+                "content": (
+                    "The user just indicated they are finished providing details and wants the project generated now. "
+                    "Use the information gathered so far to produce the final project_spec. "
+                    "Make reasonable assumptions for any gaps, list them under open_questions if needed, "
+                    'and respond with status "ready", missing_information as an empty array, and the complete project_spec.'
+                ),
+            })
 
         groq_response = await self.invoke_groq(groq_messages)
 
@@ -116,11 +151,13 @@ class OnboardingService:
         project_spec = payload.get("project_spec")
         spec_saved = False
 
-        if status == "ready":
+        if status == "ready" or (force_finalize and isinstance(project_spec, dict)):
             if not isinstance(project_spec, dict):
                 raise HTTPException(status_code=502, detail="Groq response missing project_spec details")
             self.persist_project_spec(session_id, project_spec)
             spec_saved = True
+            status = "ready"
+            missing_information = []
         else:
             project_spec = None
 

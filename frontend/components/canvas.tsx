@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Connection,
   ConnectionMode,
   Edge,
@@ -957,8 +958,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             className="bg-background"
             connectionMode={ConnectionMode.Loose}
             connectOnClick
+            proOptions={{ hideAttribution: true }}
           >
-            <Background gap={20} lineWidth={1} color="var(--border)" />
+            <Background variant={BackgroundVariant.Lines} gap={20} lineWidth={1} color="var(--border)" />
           </ReactFlow>
         </div>
       )}

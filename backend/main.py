@@ -10,11 +10,13 @@ from typing import List, Optional
 import os
 import json
 from datetime import datetime
+import subprocess
+import threading
 from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, BACKEND_ROOT, CANVAS_DIR
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
@@ -29,6 +31,9 @@ from workspace import workspace_service, WorkspaceManager
 # Initialize workspace manager
 workspace_manager = WorkspaceManager()
 
+RUN_APP_PROCESS: Optional[subprocess.Popen] = None
+RUN_APP_THREAD: Optional[threading.Thread] = None
+RUN_APP_LOCK = threading.Lock()
 
 # Create FastAPI app
 app = FastAPI(title=API_TITLE, version=API_VERSION)
@@ -635,6 +640,66 @@ async def run_project():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error running project: {str(e)}")
+
+
+@app.post("/run-app")
+async def launch_full_application():
+    """Trigger the run_app.sh helper script to start backend and frontend services."""
+    global RUN_APP_PROCESS, RUN_APP_THREAD
+
+    script_path = BACKEND_ROOT.parent / "scripts" / "run_app.sh"
+    if not script_path.exists():
+        canvas_script = CANVAS_DIR / "scripts" / "run_app.sh"
+        if canvas_script.exists():
+            script_path = canvas_script
+        else:
+            raise HTTPException(status_code=404, detail="Startup script not found. Please ensure scripts/run_app.sh exists.")
+
+    with RUN_APP_LOCK:
+        if RUN_APP_PROCESS and RUN_APP_PROCESS.poll() is None:
+            return {"success": True, "message": "Application launcher already running."}
+
+        script_path_str = script_path.as_posix()
+
+        try:
+            RUN_APP_PROCESS = subprocess.Popen(
+                ["bash", script_path_str],
+                cwd=str(BACKEND_ROOT.parent),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError as exc:
+            RUN_APP_PROCESS = None
+            raise HTTPException(status_code=500, detail="bash executable not found on server") from exc
+        except Exception as exc:
+            RUN_APP_PROCESS = None
+            raise HTTPException(status_code=500, detail=f"Failed to launch startup script: {exc}") from exc
+
+        output_logger.write_output("Launching local app via scripts/run_app.sh ...", "INFO")
+
+        def stream_output(process: subprocess.Popen):
+            global RUN_APP_PROCESS, RUN_APP_THREAD
+            try:
+                if process.stdout:
+                    for line in iter(process.stdout.readline, ""):
+                        if not line:
+                            break
+                        output_logger.write_output(line.rstrip(), "INFO")
+            finally:
+                return_code = process.wait()
+                output_logger.write_output(f"run_app.sh exited with code {return_code}", "INFO")
+                if process.stdout:
+                    process.stdout.close()
+                with RUN_APP_LOCK:
+                    RUN_APP_PROCESS = None
+                    RUN_APP_THREAD = None
+
+        RUN_APP_THREAD = threading.Thread(target=stream_output, args=(RUN_APP_PROCESS,), daemon=True)
+        RUN_APP_THREAD.start()
+
+    return {"success": True, "message": "Application launch script started."}
 
 
 # ==================== WORKSPACE OPERATIONS ====================
