@@ -62,7 +62,8 @@ class FileDatabase:
                         y=node_meta.get("y", 0),
                         status="idle",
                         isExpanded=False,
-                        isModified=False
+                        isModified=False,
+                        parentFolder=node_meta.get("parentFolder")
                     )
                     
                     self.files_db[node_id] = file_node
