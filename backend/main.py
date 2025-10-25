@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 from letta_client import Letta
-from agent import create_file_system_agent
+from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
 # Load environment variables
 load_dotenv()
@@ -53,26 +53,56 @@ class NodeMetadata(BaseModel):
     x: float
     y: float
 
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+
+class ChatResponse(BaseModel):
+    message: str
+    generated_nodes: Optional[List[dict]] = None
+
 # In-memory storage for demo (replace with database later)
 files_db = {}
 
-# Letta agent setup
+# Agent setup - Letta for file system, Anthropic for node generation
 _client = None
 _agent = None
+_node_gen_client = None
+_node_gen_agent_config = None
 
-# Initialize Letta agent on startup
+# Initialize both Letta and Anthropic agents on startup
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the Letta agent on startup."""
-    global _client, _agent
+    """Initialize both Letta (file system) and Anthropic (node generation) agents on startup."""
+    global _client, _agent, _node_gen_client, _node_gen_agent_config
+    print("=" * 60)
+    print("Starting Nody Backend with Letta (File System) + Anthropic (Node Generation)...")
+    print("=" * 60)
+    
     try:
+        # Initialize file system agent (Letta)
+        print("Initializing file system agent (Letta)...")
         _client, _agent = create_file_system_agent()
-        print(f"Letta agent initialized with ID: {_agent.id}")
+        print(f"✓ File system agent initialized with ID: {_agent.id}")
+        
+        # Initialize node generation agent (Anthropic)
+        print("Initializing node generation agent (Anthropic)...")
+        _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
+        print("✓ Node generation agent initialized")
+        print("=" * 60)
+        print("All agents initialized successfully!")
+        print("=" * 60)
     except Exception as e:
-        print(f"Failed to initialize Letta agent: {e}")
+        print(f"✗ Failed to initialize agents: {e}")
+        import traceback
+        traceback.print_exc()
         print("Make sure you have:")
         print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
         print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
+        print("3. Set ANTHROPIC_API_KEY environment variable")
 
 # Ensure canvas/files directory exists
 CANVAS_DIR = os.path.join(os.path.dirname(__file__), "..", "canvas", "files")
@@ -244,8 +274,50 @@ async def root():
 
 @app.get("/files", response_model=List[FileNode])
 async def get_files():
-    """Get all file nodes"""
-    return list(files_db.values())
+    """Get all nodes from metadata (not just file nodes)"""
+    metadata = load_metadata()
+    nodes = []
+    
+    for node_id, node_meta in metadata.items():
+        # Use fileName as label if available, otherwise use node_id
+        label = node_meta.get("fileName") or node_id
+        
+        # Create a FileNode for each metadata entry
+        file_node = FileNode(
+            id=node_id,
+            label=label,
+            type=node_meta.get("type", "process"),
+            filePath=node_meta.get("fileName"),
+            fileType=get_file_type_from_description(node_meta.get("description", "")),
+            content="",  # Content will be loaded separately if needed
+            x=node_meta.get("x", 0),
+            y=node_meta.get("y", 0),
+            status="idle",
+            isExpanded=False,
+            isModified=False
+        )
+        nodes.append(file_node)
+    
+    return nodes
+
+def get_file_type_from_description(description: str) -> str:
+    """Extract file type from description"""
+    if "python" in description.lower() or ".py" in description:
+        return "python"
+    elif "javascript" in description.lower() or ".js" in description:
+        return "javascript"
+    elif "typescript" in description.lower() or ".ts" in description:
+        return "typescript"
+    elif "json" in description.lower() or ".json" in description:
+        return "json"
+    elif "html" in description.lower() or ".html" in description:
+        return "html"
+    elif "css" in description.lower() or ".css" in description:
+        return "css"
+    elif "markdown" in description.lower() or ".md" in description:
+        return "markdown"
+    else:
+        return "text"
 
 @app.get("/files/{file_id}", response_model=FileNode)
 async def get_file(file_id: str):
@@ -397,14 +469,70 @@ class AgentChatResponse(BaseModel):
     agent_id: str
     messages: List[dict]
 
-# Letta agent endpoints
+# Agent endpoints - both Letta and Anthropic
 @app.get("/letta/health")
 async def letta_health():
-    """Health check for Letta agent"""
+    """Health check for Letta file system agent"""
     return {
         "status": "healthy" if _agent else "not_initialized",
-        "agent_id": _agent.id if _agent else None
+        "agent_id": _agent.id if _agent else None,
+        "agent_type": "file_system"
     }
+
+@app.get("/anthropic/health")
+async def anthropic_health():
+    """Health check for Anthropic node generation agent"""
+    return {
+        "status": "healthy" if _node_gen_client else "not_initialized",
+        "anthropic_client": "initialized" if _node_gen_client else "not_initialized",
+        "agent_type": "node_generation"
+    }
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Chat endpoint that generates nodes based on conversation history.
+    
+    Args:
+        request: Chat request with conversation history
+        
+    Returns:
+        Chat response with AI message and generated nodes
+    """
+    if not _node_gen_client or not _node_gen_agent_config:
+        print(f"Node generation agent not initialized. Client: {_node_gen_client}, Config: {_node_gen_agent_config}")
+        raise HTTPException(status_code=503, detail="Node generation agent not initialized")
+    
+    try:
+        print(f"Processing chat request with {len(request.messages)} messages")
+        
+        # Convert messages to the format expected by Anthropic
+        anthropic_messages = []
+        for msg in request.messages:
+            anthropic_messages.append({"role": msg.role, "content": msg.content})
+        
+        print(f"Sending {len(anthropic_messages)} messages to Anthropic")
+        
+        # Generate nodes using Anthropic with agent config
+        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        
+        print(f"Generated nodes: {generated_nodes}")
+        
+        # Create a simple response message
+        assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
+        if generated_nodes:
+            assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
+        
+        return ChatResponse(
+            message=assistant_message,
+            generated_nodes=generated_nodes
+        )
+        
+    except Exception as e:
+        print(f"Error processing chat: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
 
 @app.post("/letta/chat", response_model=AgentChatResponse)
 async def letta_chat(request: AgentChatRequest):
