@@ -6,6 +6,7 @@ import { Canvas } from "@/components/canvas"
 import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
+import Link from "next/link"
 import { Home } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
@@ -46,9 +47,11 @@ export default function NodeFlowPage() {
             <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
             <span className="text-sm text-muted-foreground">Visual Development Environment</span>
           </div>
-          <Button variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
-            <Home className="w-4 h-4 mr-2" />
-            Home
+          <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
+            <Link href="/onboarding">
+              <Home className="w-4 h-4 mr-2" />
+              Home
+            </Link>
           </Button>
         </header>
 
