@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Send, Sparkles, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FileAPI, ChatMessage } from "@/lib/api"
 
 interface Message {
   id: string
@@ -22,9 +23,11 @@ export function RightSidebar() {
     },
   ])
   const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [statusMessage, setStatusMessage] = useState<string>("")
 
-  const handleSend = () => {
-    if (!input.trim()) return
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -35,17 +38,71 @@ export function RightSidebar() {
 
     setMessages((prev) => [...prev, userMessage])
     setInput("")
+    setIsLoading(true)
+    setStatusMessage("Thinking...")
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      // Simulate different status messages
+      const statusMessages = [
+        "Analyzing your request...",
+        "Generating nodes...",
+        "Updating metadata...",
+        "Almost done..."
+      ]
+      
+      let statusIndex = 0
+      const statusInterval = setInterval(() => {
+        if (statusIndex < statusMessages.length) {
+          setStatusMessage(statusMessages[statusIndex])
+          statusIndex++
+        }
+      }, 800)
+
+      // Convert messages to API format
+      const apiMessages: ChatMessage[] = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+      
+      // Add the new user message
+      apiMessages.push({
+        role: "user",
+        content: input
+      })
+
+      // Send to backend
+      const response = await FileAPI.chat(apiMessages)
+      
+      clearInterval(statusInterval)
+      setStatusMessage("")
+      
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "I understand you want to " + input + ". Let me help you with that...",
+        content: response.message,
         timestamp: new Date(),
       }
+      
       setMessages((prev) => [...prev, aiMessage])
-    }, 1000)
+      
+      // TODO: Handle generated_nodes if present
+      if (response.generated_nodes && response.generated_nodes.length > 0) {
+        console.log("Generated nodes:", response.generated_nodes)
+        // You can trigger node creation here
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Sorry, I encountered an error. Please try again.",
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+      setStatusMessage("")
+    }
   }
 
   return (
@@ -85,6 +142,20 @@ export function RightSidebar() {
             </div>
           </div>
         ))}
+        
+        {/* Loading indicator */}
+        {isLoading && statusMessage && (
+          <div className="flex gap-3 animate-pulse">
+            <div className="w-8 h-8 rounded-full neu-raised flex items-center justify-center shrink-0 bg-card">
+              <Bot className="w-4 h-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <div className="inline-block neu-raised rounded-xl p-3 bg-card">
+                <p className="text-sm text-muted-foreground">{statusMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Suggestions */}
@@ -117,6 +188,7 @@ export function RightSidebar() {
             onClick={handleSend}
             size="sm"
             className="neu-primary text-primary-foreground neu-hover neu-active shrink-0"
+            disabled={isLoading}
           >
             <Send className="w-4 h-4" />
           </Button>

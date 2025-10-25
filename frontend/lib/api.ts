@@ -34,6 +34,26 @@ export interface NodeMetadata {
   y: number
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
+}
+
+export interface ChatRequest {
+  messages: ChatMessage[]
+}
+
+export interface ChatResponse {
+  message: string
+  generated_nodes?: Array<{
+    type: string
+    label: string
+    description: string
+    filePath?: string
+    fileType?: string
+  }>
+}
+
 export class FileAPI {
   static async getFiles(): Promise<FileNode[]> {
     const response = await fetch(`${API_BASE_URL}/files`)
@@ -157,5 +177,19 @@ export class FileAPI {
     }
     const data = await response.json()
     return { success: true, progress: data.progress || [] }
+  }
+
+  static async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ messages }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to send chat message')
+    }
+    return response.json()
   }
 }
