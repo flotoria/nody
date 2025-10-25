@@ -198,20 +198,20 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
               <div>
                 <label className="text-xs text-muted-foreground">Position X</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                  <span className="text-sm font-mono text-foreground">{nodeMeta.x.toFixed(2)}</span>
+                  <span className="text-sm font-mono text-foreground">{(Number(nodeMeta.x) || 0).toFixed(2)}</span>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Position Y</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                  <span className="text-sm font-mono text-foreground">{nodeMeta.y.toFixed(2)}</span>
+                  <span className="text-sm font-mono text-foreground">{(Number(nodeMeta.y) || 0).toFixed(2)}</span>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Coordinates</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
                   <span className="text-sm font-mono text-foreground">
-                    ({nodeMeta.x.toFixed(0)}, {nodeMeta.y.toFixed(0)})
+                    ({(Number(nodeMeta.x) || 0).toFixed(0)}, {(Number(nodeMeta.y) || 0).toFixed(0)})
                   </span>
                 </div>
               </div>

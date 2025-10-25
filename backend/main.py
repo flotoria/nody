@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
@@ -61,7 +61,7 @@ async def startup_event():
         
         # Initialize Letta agents
         _client, _agent = create_file_system_agent()
-        print(f"Letta agent initialized with ID: {_agent.id}")
+        print(f"Letta agent initialized")
         
         # Initialize node generation agent
         _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
@@ -79,7 +79,7 @@ async def startup_event():
 # ==================== FILE OPERATIONS ====================
 
 def create_empty_files_for_metadata():
-    """Create empty Python files for all nodes in metadata that don't have files yet"""
+    """Create empty files for all nodes in metadata that don't have files yet"""
     try:
         metadata = load_metadata()
         created_files = []
@@ -87,19 +87,40 @@ def create_empty_files_for_metadata():
         for node_id, node_meta in metadata.items():
             if node_meta.get("type") == "file":
                 file_name = node_meta.get("fileName", f"file_{node_id}.py")
-                file_path = os.path.join(CANVAS_DIR, file_name)
+                file_path = os.path.join(CANVAS_DIR, "nodes", file_name)
                 
-                # Create empty file if it doesn't exist
+                # Create completely empty file if it doesn't exist
                 if not os.path.exists(file_path):
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    # Just create an empty file
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write("# Empty Python file\n")
+                        f.write("")  # Completely empty
                     created_files.append(file_name)
                     print(f"Created empty file: {file_name}")
         
         return created_files
     except Exception as e:
-        print(f"Error creating empty files: {e}")
+        print(f"Error creating files: {e}")
         return []
+
+async def generate_node_code(node: dict):
+    """Generate actual code for a node using AI based on its description"""
+    try:
+        file_name = node.get("fileName", f"file_{node.get('id')}.py")
+        description = node.get("description", "")
+        
+        # Use the code generation service to generate code
+        code_content = await code_generation_service.generate_code_for_description(description, file_name)
+        
+        # Write code to file (always overwrite to ensure it has the right code)
+        file_path = os.path.join(CANVAS_DIR, "nodes", file_name)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(code_content)
+        print(f"Generated code for {file_name}")
+    except Exception as e:
+        print(f"Error generating code for {node.get('id')}: {e}")
+
 
 @app.get("/")
 async def root():
@@ -532,7 +553,7 @@ async def letta_health():
     """Health check for Letta agent"""
     return {
         "status": "healthy" if code_generation_service.is_initialized() else "not_initialized",
-        "agent_id": code_generation_service.agent.id if code_generation_service.is_initialized() else None
+        "agent_id": "anthropic_agent" if code_generation_service.is_initialized() else None
     }
 
 
@@ -577,17 +598,22 @@ async def chat_nodes(request: NodeChatRequest):
         for msg in request.messages:
             anthropic_messages.append({"role": msg.role, "content": msg.content})
         
-        # Generate nodes using Anthropic with agent config
-        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        # Generate nodes using Letta agent
+        # Note: _node_gen_agent_config is actually the agent, not a config
+        generated_nodes, assistant_message = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
         
-        # Create empty files for any new nodes
+        # Nodes should already be saved by the tool
+        # Generate code for each node
         if generated_nodes:
-            create_empty_files_for_metadata()
+            print(f"Generating code for {len(generated_nodes)} nodes...")
+            for node in generated_nodes:
+                await generate_node_code(node)
         
-        # Create response message
-        assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
-        if generated_nodes:
-            assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
+        # Use the assistant message from the function, or create a default one
+        if not assistant_message:
+            assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
+            if generated_nodes:
+                assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
         
         return NodeChatResponse(
             message=assistant_message,

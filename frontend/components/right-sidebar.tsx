@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Send, Sparkles, Bot, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FileAPI, ChatMessage } from "@/lib/api"
+import ReactMarkdown from "react-markdown"
 
 interface Message {
   id: string
@@ -23,7 +24,7 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
       role: "assistant",
       content:
         "Hello! I'm your AI assistant. I can help you build and optimize your node workflows. What would you like to create?",
-      timestamp: new Date(),
+      timestamp: new Date("2024-01-01T00:00:00Z"), // Static timestamp to prevent hydration issues
     },
   ])
   const [input, setInput] = useState("")
@@ -146,7 +147,11 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
                   message.role === "user" ? "bg-primary/5" : "bg-card"
                 }`}
               >
-                <p className="text-sm text-foreground">{message.content}</p>
+                <div className="text-sm text-foreground prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown>
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

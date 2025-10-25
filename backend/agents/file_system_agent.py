@@ -1,10 +1,12 @@
 """
-File System Agent - Letta agent with comprehensive file system tools.
+File System Agent - Anthropic agent with comprehensive file system tools.
 """
 
 import os
+import json
+from typing import Dict, Any, List
 from dotenv import load_dotenv
-from letta_client import Letta
+import anthropic
 from tools import (
     read_file, write_file, delete_file, delete_directory, list_files,
     create_directory, copy_file, move_file, get_file_info, search_files,
@@ -47,50 +49,189 @@ def load_canvas_files():
 
 def create_file_system_agent():
     """
-    Create a Letta agent with comprehensive file system tools.
+    Create an Anthropic agent with comprehensive file system tools.
     
     Returns:
-        tuple: (Letta client, agent instance)
+        tuple: (Anthropic client, agent configuration)
     """
-    # Initialize Letta client
-    # Check if using Letta Cloud or self-hosted
-    if os.getenv("LETTA_API_KEY"):
-        # Using Letta Cloud
-        client = Letta(token=os.getenv("LETTA_API_KEY"))
-        print("Connected to Letta Cloud")
-    else:
-        # Using self-hosted Letta server
-        base_url = os.getenv("LETTA_BASE_URL", "http://localhost:8283")
-        client = Letta(base_url=base_url)
-        print(f"Connected to self-hosted Letta server at {base_url}")
+    # Initialize Anthropic client
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is required")
     
-    # Create custom tools from our tools module
+    client = anthropic.Anthropic(api_key=api_key)
+    print("Connected to Anthropic API")
+    
+    # Define tools for the agent
     tools = [
-        client.tools.create_from_function(func=read_file),
-        client.tools.create_from_function(func=write_file),
-        client.tools.create_from_function(func=delete_file),
-        client.tools.create_from_function(func=delete_directory),
-        client.tools.create_from_function(func=list_files),
-        client.tools.create_from_function(func=create_directory),
-        client.tools.create_from_function(func=copy_file),
-        client.tools.create_from_function(func=move_file),
-        client.tools.create_from_function(func=get_file_info),
-        client.tools.create_from_function(func=search_files),
-        client.tools.create_from_function(func=edit_file_content),
-        client.tools.create_from_function(func=append_to_file),
-        client.tools.create_from_function(func=get_current_directory),
-        client.tools.create_from_function(func=change_directory),
+        {
+            "name": "read_file",
+            "description": "Read the contents of a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file to read"}
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "write_file",
+            "description": "Write content to a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file to write"},
+                    "content": {"type": "string", "description": "Content to write to the file"}
+                },
+                "required": ["file_path", "content"]
+            }
+        },
+        {
+            "name": "delete_file",
+            "description": "Delete a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file to delete"}
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "delete_directory",
+            "description": "Delete a directory and all its contents",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {"type": "string", "description": "Path to the directory to delete"}
+                },
+                "required": ["dir_path"]
+            }
+        },
+        {
+            "name": "list_files",
+            "description": "List files and directories in a directory",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {"type": "string", "description": "Path to the directory to list"}
+                },
+                "required": ["dir_path"]
+            }
+        },
+        {
+            "name": "create_directory",
+            "description": "Create a new directory",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {"type": "string", "description": "Path to the directory to create"}
+                },
+                "required": ["dir_path"]
+            }
+        },
+        {
+            "name": "copy_file",
+            "description": "Copy a file from source to destination",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source file path"},
+                    "destination": {"type": "string", "description": "Destination file path"}
+                },
+                "required": ["source", "destination"]
+            }
+        },
+        {
+            "name": "move_file",
+            "description": "Move a file from source to destination",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source file path"},
+                    "destination": {"type": "string", "description": "Destination file path"}
+                },
+                "required": ["source", "destination"]
+            }
+        },
+        {
+            "name": "get_file_info",
+            "description": "Get detailed information about a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file"}
+                },
+                "required": ["file_path"]
+            }
+        },
+        {
+            "name": "search_files",
+            "description": "Search for files matching a pattern",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "Search pattern"},
+                    "directory": {"type": "string", "description": "Directory to search in"}
+                },
+                "required": ["pattern", "directory"]
+            }
+        },
+        {
+            "name": "edit_file_content",
+            "description": "Edit specific content in a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file"},
+                    "old_content": {"type": "string", "description": "Content to replace"},
+                    "new_content": {"type": "string", "description": "New content"}
+                },
+                "required": ["file_path", "old_content", "new_content"]
+            }
+        },
+        {
+            "name": "append_to_file",
+            "description": "Append content to a file",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Path to the file"},
+                    "content": {"type": "string", "description": "Content to append"}
+                },
+                "required": ["file_path", "content"]
+            }
+        },
+        {
+            "name": "get_current_directory",
+            "description": "Get the current working directory",
+            "input_schema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "change_directory",
+            "description": "Change the current working directory",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "dir_path": {"type": "string", "description": "Path to the directory"}
+                },
+                "required": ["dir_path"]
+            }
+        }
     ]
     
-    # Load canvas files as memory blocks
+    # Load canvas files as context
     canvas_files = load_canvas_files()
     
-    # Create agent with memory blocks and tools
-    agent = client.agents.create(
-        memory_blocks=[
-            {
-                "label": "persona",
-                "value": """I am a comprehensive file system assistant with extensive capabilities for file and directory operations. I can help you with:
+    # Create agent configuration
+    agent_config = {
+        "model": "claude-3-5-sonnet-20241022",
+        "tools": tools,
+        "system": f"""You are a comprehensive file system assistant with extensive capabilities for file and directory operations. You can help with:
 
 - Reading and writing node files
 - Creating and deleting node files and directories
@@ -101,52 +242,40 @@ def create_file_system_agent():
 - Getting detailed file information
 - Navigating the file system
 
-I'm precise, helpful, and always confirm operations before performing destructive actions. I provide clear feedback about what I'm doing and any errors that occur."""
-            },
-            {
-                "label": "human",
-                "value": "The user is a developer working on a project called 'nody' with both frontend and backend components. They need assistance with file operations, code editing, and project management."
-            },
-            {
-                "label": "project_context",
-                "value": """Current project structure:
+I'm precise, helpful, and always confirm operations before performing destructive actions. I provide clear feedback about what I'm doing and any errors that occur.
+
+Current project structure:
 - /home/ryan/dev/nody/ - Project root
-- /home/ryan/dev/nody/backend/ - Python backend with Letta agent
+- /home/ryan/dev/nody/backend/ - Python backend with Anthropic agent
 - /home/ryan/dev/nody/frontend/ - Next.js frontend
 
-The backend uses Letta for AI-powered file operations and the frontend is a Next.js application.""",
-                "description": "Stores information about the current project structure and context"
-            },
-            {
-                "label": "safety_guidelines",
-                "value": """Important safety guidelines for file operations:
+The backend uses Anthropic for AI-powered file operations and the frontend is a Next.js application.
+
+Important safety guidelines for file operations:
 1. Always confirm before deleting files or directories
 2. Create backups when making significant changes
 3. Check file permissions before operations
 4. Provide clear error messages when operations fail
 5. Be cautious with recursive operations
-6. Validate file paths before operations""",
-                "description": "Safety guidelines for file system operations"
-            }
-        ] + canvas_files,
-        tools=[tool.name for tool in tools] + ["web_search", "run_code"],  # Include built-in tools too
-        model="openai/gpt-4o-mini",  # Using cost-effective model
-        embedding="openai/text-embedding-3-small"
-    )
+6. Validate file paths before operations
+
+Current canvas files:
+{json.dumps(canvas_files, indent=2) if canvas_files else "No canvas files found"}"""
+    }
     
-    print(f"Created file system agent with ID: {agent.id}")
-    print(f"Agent has {len(tools)} custom file system tools plus built-in tools")
+    print(f"Created file system agent with Anthropic SDK")
+    print(f"Agent has {len(tools)} file system tools")
     
-    return client, agent
+    return client, agent_config
 
 
-def interact_with_agent(client, agent_id):
+def interact_with_agent(client, agent_config):
     """
     Interactive loop to chat with the agent.
     
     Args:
-        client: Letta client instance
-        agent_id: ID of the agent to interact with
+        client: Anthropic client instance
+        agent_config: Agent configuration
     """
     print("\n" + "="*60)
     print("File System Agent Ready!")
@@ -160,6 +289,8 @@ def interact_with_agent(client, agent_id):
     print("\nType 'quit' to exit.")
     print("="*60)
     
+    messages = []
+    
     while True:
         try:
             user_input = input("\nYou: ").strip()
@@ -171,23 +302,117 @@ def interact_with_agent(client, agent_id):
             if not user_input:
                 continue
             
+            # Add user message
+            messages.append({"role": "user", "content": user_input})
+            
             # Send message to agent
-            response = client.agents.messages.create(
-                agent_id=agent_id,
-                messages=[{"role": "user", "content": user_input}]
+            response = client.messages.create(
+                model=agent_config["model"],
+                max_tokens=4000,
+                system=agent_config["system"],
+                tools=agent_config["tools"],
+                messages=messages
             )
             
             # Process and display response
             print("\nAgent:")
-            for msg in response.messages:
-                if msg.message_type == "assistant_message":
-                    print(msg.content)
-                elif msg.message_type == "reasoning_message":
-                    print(f"[Reasoning: {msg.reasoning}]")
-                elif msg.message_type == "tool_call_message":
-                    print(f"[Tool: {msg.tool_call.name}]")
-                elif msg.message_type == "tool_return_message":
-                    print(f"[Tool Result: {msg.tool_return}]")
+            assistant_message = ""
+            tool_results = []
+            
+            for content_block in response.content:
+                if content_block.type == "text":
+                    assistant_message += content_block.text
+                elif content_block.type == "tool_use":
+                    # Handle tool calls
+                    tool_name = content_block.name
+                    tool_input = content_block.input
+                    
+                    print(f"[Tool: {tool_name}]")
+                    
+                    # Execute the tool
+                    try:
+                        if tool_name == "read_file":
+                            result = read_file(tool_input.get("file_path"))
+                        elif tool_name == "write_file":
+                            result = write_file(tool_input.get("file_path"), tool_input.get("content"))
+                        elif tool_name == "delete_file":
+                            result = delete_file(tool_input.get("file_path"))
+                        elif tool_name == "delete_directory":
+                            result = delete_directory(tool_input.get("dir_path"))
+                        elif tool_name == "list_files":
+                            result = list_files(tool_input.get("dir_path"))
+                        elif tool_name == "create_directory":
+                            result = create_directory(tool_input.get("dir_path"))
+                        elif tool_name == "copy_file":
+                            result = copy_file(tool_input.get("source"), tool_input.get("destination"))
+                        elif tool_name == "move_file":
+                            result = move_file(tool_input.get("source"), tool_input.get("destination"))
+                        elif tool_name == "get_file_info":
+                            result = get_file_info(tool_input.get("file_path"))
+                        elif tool_name == "search_files":
+                            result = search_files(tool_input.get("pattern"), tool_input.get("directory"))
+                        elif tool_name == "edit_file_content":
+                            result = edit_file_content(tool_input.get("file_path"), tool_input.get("old_content"), tool_input.get("new_content"))
+                        elif tool_name == "append_to_file":
+                            result = append_to_file(tool_input.get("file_path"), tool_input.get("content"))
+                        elif tool_name == "get_current_directory":
+                            result = get_current_directory()
+                        elif tool_name == "change_directory":
+                            result = change_directory(tool_input.get("dir_path"))
+                        else:
+                            result = f"Unknown tool: {tool_name}"
+                        
+                        print(f"[Tool Result: {result}]")
+                        
+                        # Add tool result to messages
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": content_block.id,
+                            "content": str(result)
+                        })
+                    except Exception as e:
+                        print(f"[Tool Error: {e}]")
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": content_block.id,
+                            "content": f"Error: {str(e)}"
+                        })
+            
+            if assistant_message:
+                print(assistant_message)
+            
+            # Add assistant message to conversation
+            messages.append({
+                "role": "assistant",
+                "content": response.content
+            })
+            
+            # If there are tool results, send them back
+            if tool_results:
+                messages.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+                
+                # Get final response
+                final_response = client.messages.create(
+                    model=agent_config["model"],
+                    max_tokens=4000,
+                    system=agent_config["system"],
+                    tools=agent_config["tools"],
+                    messages=messages
+                )
+                
+                # Display final response
+                for content_block in final_response.content:
+                    if content_block.type == "text":
+                        print(content_block.text)
+                
+                # Add final response to messages
+                messages.append({
+                    "role": "assistant",
+                    "content": final_response.content
+                })
                     
         except KeyboardInterrupt:
             print("\nGoodbye!")
@@ -198,11 +423,10 @@ def interact_with_agent(client, agent_id):
 
 if __name__ == "__main__":
     try:
-        client, agent = create_file_system_agent()
-        interact_with_agent(client, agent.id)
+        client, agent_config = create_file_system_agent()
+        interact_with_agent(client, agent_config)
     except Exception as e:
         print(f"Failed to create agent: {e}")
         print("\nMake sure you have:")
-        print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
-        print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
-        print("3. Installed dependencies: pip install -e .")
+        print("1. Set ANTHROPIC_API_KEY environment variable")
+        print("2. Installed dependencies: pip install -e .")

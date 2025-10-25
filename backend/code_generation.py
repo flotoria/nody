@@ -1,5 +1,5 @@
 """
-Letta agent integration for AI-powered code generation.
+Anthropic agent integration for AI-powered code generation.
 """
 import os
 import json
@@ -15,32 +15,31 @@ from database import file_db, output_logger
 
 
 class CodeGenerationService:
-    """Handles AI-powered code generation using Letta agent."""
+    """Handles AI-powered code generation using Anthropic agent."""
     
     def __init__(self):
         self.client = None
-        self.agent = None
+        self.agent_config = None
         self._initialized = False
     
     async def initialize(self):
-        """Initialize the Letta agent."""
+        """Initialize the Anthropic agent."""
         if self._initialized:
             return
         
         try:
-            self.client, self.agent = create_file_system_agent()
-            print(f"Letta agent initialized with ID: {self.agent.id}")
+            self.client, self.agent_config = create_file_system_agent()
+            print(f"Anthropic agent initialized")
             self._initialized = True
         except Exception as e:
-            print(f"Failed to initialize Letta agent: {e}")
+            print(f"Failed to initialize Anthropic agent: {e}")
             print("Make sure you have:")
-            print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
-            print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
-            raise HTTPException(status_code=503, detail="Letta agent initialization failed")
+            print("1. Set ANTHROPIC_API_KEY environment variable")
+            raise HTTPException(status_code=503, detail="Anthropic agent initialization failed")
     
     def is_initialized(self) -> bool:
         """Check if the agent is initialized."""
-        return self._initialized and self.client is not None and self.agent is not None
+        return self._initialized and self.client is not None and self.agent_config is not None
     
     def save_edges(self, edges: List[Dict[str, Any]]):
         """Persist edge relationships to disk."""
@@ -49,16 +48,18 @@ class CodeGenerationService:
         except OSError as exc:
             print(f"Error saving edges: {exc}")
     
-    async def plan_workspace_with_letta(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Request the Letta agent to design file and edge metadata for the canvas."""
+    async def plan_workspace_with_anthropic(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Request the Anthropic agent to design file and edge metadata for the canvas."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic agent not initialized")
 
         try:
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
+            response = self.client.messages.create(
+                model=self.agent_config["model"],
+                max_tokens=4000,
+                system=self.agent_config["system"] + "\n\n" + LETTA_METADATA_SYSTEM_PROMPT,
+                tools=self.agent_config["tools"],
                 messages=[
-                    {"role": "system", "content": LETTA_METADATA_SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": json.dumps(
@@ -70,15 +71,16 @@ class CodeGenerationService:
                 ],
             )
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Failed to contact Letta agent: {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"Failed to contact Anthropic agent: {exc}") from exc
 
-        for message in response.messages:
-            if message.message_type == "assistant_message" and message.content:
+        # Process response content
+        for content_block in response.content:
+            if content_block.type == "text" and content_block.text:
                 try:
-                    plan_data = extract_structured_payload(message.content)
+                    plan_data = extract_structured_payload(content_block.text)
                     return sanitize_plan(plan_data, project_spec)
                 except HTTPException as parse_error:
-                    print(f"Letta metadata parse error: {parse_error.detail}")
+                    print(f"Anthropic metadata parse error: {parse_error.detail}")
                     from utils import fallback_metadata_plan
                     return fallback_metadata_plan(project_spec)
 
@@ -87,7 +89,7 @@ class CodeGenerationService:
     
     async def prepare_project_workspace(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Transform the saved project spec into canvas metadata and placeholder node files."""
-        plan = await self.plan_workspace_with_letta(project_spec)
+        plan = await self.plan_workspace_with_anthropic(project_spec)
         files_plan = plan.get("files") or []
         edges_plan_raw = plan.get("edges") or []
 
@@ -217,17 +219,20 @@ File name: {file_name}
 
 Generate ONLY the code:"""
             
-            # Send to Letta agent
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
+            # Send to Anthropic agent
+            response = self.client.messages.create(
+                model=self.agent_config["model"],
+                max_tokens=4000,
+                system=self.agent_config["system"],
+                tools=self.agent_config["tools"],
                 messages=[{"role": "user", "content": prompt}]
             )
             
             # Extract the generated code from the response
             generated_code = ""
-            for msg in response.messages:
-                if msg.message_type == "assistant_message" and msg.content:
-                    generated_code = msg.content
+            for content_block in response.content:
+                if content_block.type == "text" and content_block.text:
+                    generated_code = content_block.text
                     break
             
             if not generated_code:
@@ -314,17 +319,20 @@ File name: {file_name}
 
 Generate ONLY the code:"""
                     
-                    # Send to Letta agent
-                    response = self.client.agents.messages.create(
-                        agent_id=self.agent.id,
+                    # Send to Anthropic agent
+                    response = self.client.messages.create(
+                        model=self.agent_config["model"],
+                        max_tokens=4000,
+                        system=self.agent_config["system"],
+                        tools=self.agent_config["tools"],
                         messages=[{"role": "user", "content": prompt}]
                     )
                     
                     # Extract the generated code from the response
                     generated_code = ""
-                    for msg in response.messages:
-                        if msg.message_type == "assistant_message" and msg.content:
-                            generated_code = msg.content
+                    for content_block in response.content:
+                        if content_block.type == "text" and content_block.text:
+                            generated_code = content_block.text
                             break
                     
                     if generated_code:
@@ -365,46 +373,46 @@ Generate ONLY the code:"""
             }
     
     async def chat_with_agent(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Send a message to the Letta agent."""
+        """Send a message to the Anthropic agent."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic agent not initialized")
         
         try:
-            # Convert messages to the format expected by Letta
-            letta_messages = [
+            # Convert messages to the format expected by Anthropic
+            anthropic_messages = [
                 {"role": msg["role"], "content": msg["content"]}
                 for msg in messages
             ]
             
             # Send message to agent
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
-                messages=letta_messages
+            response = self.client.messages.create(
+                model=self.agent_config["model"],
+                max_tokens=4000,
+                system=self.agent_config["system"],
+                tools=self.agent_config["tools"],
+                messages=anthropic_messages
             )
             
             # Convert response to dict format
             response_messages = []
-            for msg in response.messages:
+            for content_block in response.content:
                 msg_dict = {
-                    "message_type": msg.message_type,
+                    "message_type": "assistant_message",
                 }
                 
-                if hasattr(msg, 'content'):
-                    msg_dict["content"] = msg.content
-                if hasattr(msg, 'reasoning'):
-                    msg_dict["reasoning"] = msg.reasoning
-                if hasattr(msg, 'tool_call'):
+                if content_block.type == "text":
+                    msg_dict["content"] = content_block.text
+                elif content_block.type == "tool_use":
+                    msg_dict["message_type"] = "tool_call_message"
                     msg_dict["tool_call"] = {
-                        "name": msg.tool_call.name if msg.tool_call else None,
-                        "arguments": msg.tool_call.arguments if msg.tool_call else None
+                        "name": content_block.name,
+                        "arguments": content_block.input
                     }
-                if hasattr(msg, 'tool_return'):
-                    msg_dict["tool_return"] = msg.tool_return
                 
                 response_messages.append(msg_dict)
             
             return {
-                "agent_id": self.agent.id,
+                "agent_id": "anthropic_agent",
                 "messages": response_messages
             }
             
@@ -412,15 +420,50 @@ Generate ONLY the code:"""
             raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
     
     def get_agent_info(self) -> Dict[str, Any]:
-        """Get information about the Letta agent."""
+        """Get information about the Anthropic agent."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic agent not initialized")
         
         return {
-            "agent_id": self.agent.id,
+            "agent_id": "anthropic_agent",
             "status": "active",
-            "tools_count": len(self.agent.tools) if hasattr(self.agent, 'tools') else 0
+            "tools_count": len(self.agent_config["tools"]) if self.agent_config else 0
         }
+    
+    async def generate_code_for_description(self, description: str, file_name: str) -> str:
+        """Generate Python code based on a description"""
+        if not self.is_initialized():
+            raise HTTPException(status_code=503, detail="Anthropic agent not initialized")
+        
+        try:
+            prompt = f"""Write Python code for a file called {file_name} that does the following:
+{description}
+
+Provide only the Python code, no explanations. Start with imports, then define functions, classes, etc."""
+            
+            response = self.client.messages.create(
+                model=self.agent_config["model"],
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            # Extract code from response
+            code = ""
+            for content_block in response.content:
+                if content_block.type == "text":
+                    code += content_block.text
+            
+            return code.strip()
+        except Exception as e:
+            print(f"Error generating code: {e}")
+            # Fallback to simple template
+            return f'''def main():
+    """{description}"""
+    pass
+
+if __name__ == "__main__":
+    main()
+'''
 
 
 # Global instance

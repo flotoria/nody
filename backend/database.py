@@ -43,64 +43,9 @@ class FileDatabase:
         return file_path
 
     def _generate_placeholder_content(self, file_path: Path, node_meta: Dict[str, Any]) -> str:
-        """Generate starter content for newly created files."""
-        description = node_meta.get("description", "").strip()
-        if not description:
-            description = f"TODO: Implement node '{node_meta.get('id', file_path.stem)}'."
-
-        ext = file_path.suffix.lower()
-        node_id = node_meta.get("id", file_path.stem)
-
-        if ext in {".json"}:
-            return json.dumps(
-                {
-                    "placeholder": True,
-                    "node_id": node_id,
-                    "description": description,
-                },
-                indent=2,
-            ) + "\n"
-
-        if ext in {".md", ".markdown"}:
-            return f"# {node_id}\n\n{description}\n"
-
-        if ext in {".py"}:
-            lines = '\n'.join(description.splitlines())
-            return (
-                f'"""{lines}"""\n\n'
-                "def main():\n"
-                f"    # TODO: implement {node_id}\n"
-                "    pass\n\n"
-                "if __name__ == \"__main__\":\n"
-                "    main()\n"
-            )
-
-        if ext in {".ts", ".tsx", ".js", ".jsx"}:
-            comment = "\n".join(f" * {line}" for line in description.splitlines())
-            export_name = "".join(part.capitalize() for part in node_id.split("_"))
-            return (
-                "/**\n"
-                f"{comment}\n"
-                " */\n"
-                f"export const {export_name or 'TodoComponent'} = () => {{\n"
-                f"  // TODO: implement {node_id}\n"
-                "  return null\n"
-                "}\n"
-            )
-
-        if ext in {".html"}:
-            return (
-                "<!--\n"
-                f"{description}\n"
-                "-->\n"
-                "<div>\n"
-                f"  <!-- TODO: implement {node_id} -->\n"
-                "</div>\n"
-            )
-
-        # Default to hash-style comments
-        comment_lines = "\n".join(f"# {line}" for line in description.splitlines())
-        return f"{comment_lines}\n\n# TODO: implement {node_id}\n"
+        """Generate starter content for newly created files - now returns empty string."""
+        # Return completely empty files
+        return ""
 
     def _create_or_update_file_node(self, node_id: str, node_meta: Dict[str, Any]):
         """Ensure an in-memory FileNode exists for metadata entry."""
