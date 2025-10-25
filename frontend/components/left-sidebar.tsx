@@ -78,7 +78,7 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
   }
 
   return (
-    <div className="w-80 h-full shrink-0 neu-raised-sm bg-card flex flex-col">
+    <div className="h-full w-full neu-raised-sm bg-card flex flex-col">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
         <div className="h-12 flex items-center justify-center border-b border-border">
           <TabsList className="h-8 w-fit neu-inset-sm">
