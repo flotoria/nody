@@ -68,6 +68,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
   const [showFileModal, setShowFileModal] = useState(false)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
+  const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -302,6 +303,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
 
   const handleGenerateCode = useCallback(async (nodeId: string) => {
     try {
+      setGeneratingNodeId(nodeId)
       const result = await FileAPI.generateFileCode(nodeId)
       if (result.success) {
         toast.success('Code generated successfully', {
@@ -326,6 +328,8 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
         description: 'Network error occurred',
         duration: 3000,
       })
+    } finally {
+      setGeneratingNodeId(null)
     }
   }, [])
 
@@ -554,6 +558,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
               isModified={node.isModified}
               onExpand={handleNodeExpand}
               onGenerateCode={handleGenerateCode}
+              isGenerating={generatingNodeId === node.id}
             />
           ))}
         </div>
@@ -595,6 +600,7 @@ export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps
           <CodeEditor
             content={node.content || ''}
             fileType={node.fileType || 'text'}
+            fileName={node.filePath || node.label}
             onSave={(content) => handleFileSave(node.id, content)}
             onClose={() => setExpandedNode(null)}
             isModified={node.isModified}

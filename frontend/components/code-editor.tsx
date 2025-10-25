@@ -11,12 +11,13 @@ const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 interface CodeEditorProps {
   content: string
   fileType: string
+  fileName?: string
   onSave: (content: string) => void
   onClose: () => void
   isModified?: boolean
 }
 
-export function CodeEditor({ content, fileType, onSave, onClose, isModified = false }: CodeEditorProps) {
+export function CodeEditor({ content, fileType, fileName, onSave, onClose, isModified = false }: CodeEditorProps) {
   const { theme } = useTheme()
   const [editedContent, setEditedContent] = useState(content)
   const [hasChanges, setHasChanges] = useState(isModified)
@@ -213,7 +214,9 @@ export function CodeEditor({ content, fileType, onSave, onClose, isModified = fa
       {/* Header */}
       <div className="flex items-center justify-between mb-6 pb-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-semibold text-white">Code Editor</span>
+          <span className="text-lg font-semibold text-white">
+            {fileName ? fileName : "Code Editor"}
+          </span>
           <span className="text-sm text-gray-300 px-2 py-1 neu-inset-sm bg-gray-800 rounded">
             {fileType}
           </span>
