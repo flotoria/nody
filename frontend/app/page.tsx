@@ -19,7 +19,6 @@ interface ConsoleMessage {
 
 export default function NodeFlowPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [isRunning, setIsRunning] = useState(false)
   const [nodes, setNodes] = useState<FileNode[]>([])
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
@@ -42,14 +41,14 @@ export default function NodeFlowPage() {
       }
     }
 
-    // Poll every 500ms when running
-    const interval = setInterval(pollOutput, 500)
+    // Poll every 2 seconds for output updates
+    const interval = setInterval(pollOutput, 2000)
 
     // Initial poll
     pollOutput()
 
     return () => clearInterval(interval)
-  }, [isRunning])
+  }, [])
 
   const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
     setNodes(updatedNodes)
@@ -71,25 +70,6 @@ export default function NodeFlowPage() {
     }
   }
 
-  const handleToggleRun = async () => {
-    if (!isRunning) {
-      setIsRunning(true)
-      try {
-        await FileAPI.runProject()
-        // Refresh files and metadata after running
-        const files = await FileAPI.getFiles()
-        const metadata = await FileAPI.getMetadata()
-        setNodes(files)
-        setMetadata(metadata)
-      } catch (error) {
-        console.error('Failed to run project:', error)
-      } finally {
-        setIsRunning(false)
-      }
-    } else {
-      setIsRunning(false)
-    }
-  }
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
@@ -112,8 +92,6 @@ export default function NodeFlowPage() {
         <Canvas
           selectedNode={selectedNode}
           onSelectNode={setSelectedNode}
-          isRunning={isRunning}
-          onToggleRun={handleToggleRun}
           onDataChange={handleDataChange}
         />
 

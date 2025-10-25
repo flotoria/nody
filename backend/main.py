@@ -560,6 +560,98 @@ Generate ONLY the code:"""
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
 
+@app.post("/files/{file_id}/generate")
+async def generate_file_code(file_id: str):
+    """
+    Generate code for a specific file based on its description in metadata.
+    
+    Args:
+        file_id: ID of the file node to generate code for
+        
+    Returns:
+        Response with generation result
+    """
+    if not _client or not _agent:
+        raise HTTPException(status_code=503, detail="Letta agent not initialized")
+    
+    try:
+        # Load metadata
+        metadata = load_metadata()
+        
+        if file_id not in metadata:
+            raise HTTPException(status_code=404, detail="File node not found in metadata")
+        
+        node_data = metadata[file_id]
+        if node_data.get("type") != "file":
+            raise HTTPException(status_code=400, detail="Node is not a file type")
+        
+        description = node_data.get("description", "")
+        file_name = node_data.get("fileName", f"file_{file_id}")
+        
+        if not description:
+            raise HTTPException(status_code=400, detail="No description found for this file node")
+        
+        write_output(f"🔄 Generating {file_name}...", "INFO")
+        write_output(f"   Description: {description}", "INFO")
+        
+        # Create prompt for code generation
+        prompt = f"""Based on this description: "{description}", generate ONLY the complete code for a file named "{file_name}".
+
+CRITICAL REQUIREMENTS:
+- Generate ONLY the raw code content
+- NO explanations, comments about the code, or markdown formatting
+- NO "Here is the code:" or similar introductory text
+- NO code blocks with triple backticks
+- NO explanations after the code
+- Just the pure, executable code content
+
+Description: {description}
+File name: {file_name}
+
+Generate ONLY the code:"""
+        
+        # Send to Letta agent
+        response = _client.agents.messages.create(
+            agent_id=_agent.id,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        # Extract the generated code from the response
+        generated_code = ""
+        for msg in response.messages:
+            if msg.message_type == "assistant_message" and msg.content:
+                generated_code = msg.content
+                break
+        
+        if not generated_code:
+            write_output(f"❌ Failed to generate code for {file_name}", "ERROR")
+            raise HTTPException(status_code=500, detail="Failed to generate code")
+        
+        # Write the generated code to the file
+        file_path = os.path.join(CANVAS_DIR, file_name)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(generated_code)
+        
+        # Update the file content in files_db
+        if file_id in files_db:
+            files_db[file_id].content = generated_code
+        
+        write_output(f"✅ Generated {file_name} ({len(generated_code)} chars)", "SUCCESS")
+        
+        return {
+            "message": f"Successfully generated code for {file_name}",
+            "file_id": file_id,
+            "file_name": file_name,
+            "description": description,
+            "code_length": len(generated_code)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        write_output(f"❌ ERROR generating {file_id}: {str(e)}", "ERROR")
+        raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
+
 @app.post("/run")
 async def run_project():
     """

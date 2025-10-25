@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { ZoomIn, ZoomOut, Maximize2, Play, Square } from "lucide-react"
+import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Node } from "@/components/node"
 import { CodeEditor } from "@/components/code-editor"
@@ -14,8 +14,6 @@ import { toast } from "sonner"
 interface CanvasProps {
   selectedNode: string | null
   onSelectNode: (id: string | null) => void
-  isRunning: boolean
-  onToggleRun: () => void
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
   onDataChange?: (nodes: FileNode[], metadata: Record<string, NodeMetadata>) => void
 }
@@ -54,7 +52,7 @@ const initialEdges: Edge[] = [
   { id: "e2-3", from: "2", to: "3" },
 ]
 
-export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onDataChange }: CanvasProps) {
+export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [nodes, setNodes] = useState<NodeData[]>([])
@@ -301,6 +299,35 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
     setPendingFileDrop(null)
   }, [pendingFileDrop])
 
+  const handleGenerateCode = useCallback(async (nodeId: string) => {
+    try {
+      const result = await FileAPI.generateFileCode(nodeId)
+      if (result.success) {
+        toast.success('Code generated successfully', {
+          description: `Generated ${result.data?.file_name}`,
+          duration: 2000,
+        })
+        
+        // Refresh files and metadata after generation
+        const files = await FileAPI.getFiles()
+        const metadata = await FileAPI.getMetadata()
+        setNodes(files as NodeData[])
+        setMetadata(metadata)
+      } else {
+        toast.error('Failed to generate code', {
+          description: result.error || 'Unknown error occurred',
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to generate code:', error)
+      toast.error('Failed to generate code', {
+        description: 'Network error occurred',
+        duration: 3000,
+      })
+    }
+  }, [])
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
@@ -357,39 +384,6 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
     }
   }, [handleMouseMove, handleMouseUp, handleWheel])
 
-  useEffect(() => {
-    if (isRunning) {
-      const timer1 = setTimeout(() => {
-        setNodes((prev) => prev.map((n) => (n.id === "1" ? { ...n, status: "running" } : n)))
-      }, 500)
-      const timer2 = setTimeout(() => {
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === "1" ? { ...n, status: "success" } : n.id === "2" ? { ...n, status: "running" } : n,
-          ),
-        )
-      }, 1500)
-      const timer3 = setTimeout(() => {
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === "2" ? { ...n, status: "success" } : n.id === "3" ? { ...n, status: "running" } : n,
-          ),
-        )
-      }, 3000)
-      const timer4 = setTimeout(() => {
-        setNodes((prev) => prev.map((n) => (n.id === "3" ? { ...n, status: "success" } : n)))
-      }, 4000)
-
-      return () => {
-        clearTimeout(timer1)
-        clearTimeout(timer2)
-        clearTimeout(timer3)
-        clearTimeout(timer4)
-      }
-    } else {
-      setNodes((prev) => prev.map((n) => ({ ...n, status: "idle" })))
-    }
-  }, [isRunning])
 
   return (
     <div className="flex-1 relative overflow-hidden neu-inset bg-background">
@@ -406,29 +400,6 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
         <>
       {/* Canvas controls - top right */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <Button
-          onClick={onToggleRun}
-          size="sm"
-          variant="ghost"
-          className={`neu-raised neu-hover neu-active ${
-            isRunning ? "bg-destructive/20 text-destructive" : "bg-primary/20 text-primary"
-          }`}
-        >
-          {isRunning ? (
-            <>
-              <Square className="w-4 h-4 mr-2" />
-              Stop
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4 mr-2" />
-              Run
-            </>
-          )}
-        </Button>
-
-        <div className="w-px h-8 bg-border" />
-
         <Button
           size="sm"
           variant="ghost"
@@ -495,7 +466,6 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
               const toY = toNode.y + 60
 
               const isActive =
-                isRunning &&
                 (fromNode.status === "running" || fromNode.status === "success") &&
                 toNode.status !== "idle"
 
@@ -582,6 +552,7 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
               isExpanded={expandedNode === node.id}
               isModified={node.isModified}
               onExpand={handleNodeExpand}
+              onGenerateCode={handleGenerateCode}
             />
           ))}
         </div>
