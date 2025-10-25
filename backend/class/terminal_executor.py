@@ -5,26 +5,26 @@ class TerminalExecutor:
     """Execute terminal commands - ANY command allowed, no restrictions"""
     
     @staticmethod
-    def execute(command: str, workspace_path: str, timeout: int = 30) -> dict:
+    def execute(command: str, workspace_path: str, timeout: int = 120) -> dict:
         """
         Execute ANY command in the workspace directory.
         
-        Key Point: All commands run in backend/canvas/workspace/ ONLY
+        Key Point: All commands run in git/workspace/ ONLY
         
         Args:
             command: Any shell command (git, npm, python, etc.)
-            workspace_path: Must be inside backend/canvas/
+            workspace_path: Must be inside git/
             timeout: Max execution time
         
         Returns:
             dict with success, stdout, stderr, return_code
         """
         try:
-            # SECURITY: Ensure workspace is in canvas directory
-            if 'canvas' not in workspace_path:
+            # SECURITY: Ensure workspace is in git directory or temporary workspace
+            if 'git' not in workspace_path and 'nody_terminal_' not in workspace_path:
                 return {
                     "success": False,
-                    "error": "Workspace must be in canvas directory",
+                    "error": "Workspace must be in git directory or temporary workspace",
                     "stdout": "",
                     "stderr": "",
                     "return_code": -1

@@ -24,7 +24,10 @@ from models import (
 from database import file_db, output_logger
 from onboarding import onboarding_service
 from code_generation import code_generation_service
-from workspace import workspace_service
+from workspace import workspace_service, WorkspaceManager
+
+# Initialize workspace manager
+workspace_manager = WorkspaceManager()
 
 
 # Create FastAPI app
@@ -656,17 +659,110 @@ async def get_active_workspace():
 
 # ==================== TERMINAL OPERATIONS ====================
 
-@app.post("/terminal/execute")
-async def execute_terminal_command(cmd: TerminalCommand):
-    """Execute ANY terminal command in workspace."""
-    try:
-        result = workspace_service.execute_terminal_command(cmd.command)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error executing command: {str(e)}")
 
+
+
+@app.post("/terminal/execute-stream")
+async def execute_terminal_command_stream(cmd: TerminalCommand):
+    """
+    Execute terminal command with streaming output.
+    
+    Returns Server-Sent Events (SSE) for real-time output.
+    """
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    import subprocess
+    
+    async def stream_output():
+        try:
+            workspace_info = workspace_manager.ensure_active_workspace(cmd.command)
+            if not workspace_info["success"]:
+                yield f"data: {json.dumps({'error': workspace_info['error']})}\n\n"
+                return
+            
+            workspace_path = workspace_info["workspace"]
+            print(f"DEBUG: Executing command '{cmd.command}' in workspace: {workspace_path}")
+            
+            # Handle git clone specially - run in git directory
+            if cmd.command.startswith("git clone"):
+                # Extract repo name from clone command
+                parts = cmd.command.split()
+                if len(parts) >= 3:
+                    repo_url = parts[-1]  # Last part is the URL
+                    repo_name = repo_url.split('/')[-1].replace('.git', '')
+                    
+                    # Run git clone in the git directory
+                    git_dir = workspace_manager.git_dir
+                    print(f"DEBUG: Running git clone in git directory: {git_dir}")
+                    
+                    # Create a new process for git clone in git directory
+                    clone_process = subprocess.Popen(
+                        cmd.command,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        cwd=git_dir
+                    )
+                    
+                    # Stream git clone output
+                    for line in iter(clone_process.stdout.readline, ''):
+                        if line:
+                            print(f"DEBUG: Git clone output: {repr(line)}")
+                            yield f"data: {json.dumps({'output': line})}\n\n"
+                            await asyncio.sleep(0.01)
+                    
+                    clone_process.wait()
+                    print(f"DEBUG: Git clone finished with return code: {clone_process.returncode}")
+                    
+                    # Auto-set as active workspace after successful clone
+                    if clone_process.returncode == 0:
+                        result = workspace_manager.set_active_workspace(repo_name)
+                        if result["success"]:
+                            print(f"DEBUG: Auto-switched to workspace: {result['workspace']}")
+                            message = f"\nSwitched to workspace: {repo_name}\n"
+                            yield f"data: {json.dumps({'output': message})}\n\n"
+                        else:
+                            print(f"DEBUG: Failed to switch workspace: {result['error']}")
+                            message = f"\nWarning: Could not switch to workspace {repo_name}: {result['error']}\n"
+                            yield f"data: {json.dumps({'output': message})}\n\n"
+                    else:
+                        message = f"\nGit clone failed with return code: {clone_process.returncode}\n"
+                        yield f"data: {json.dumps({'output': message})}\n\n"
+                
+                yield f"data: {json.dumps({'done': True, 'return_code': clone_process.returncode})}\n\n"
+            else:
+                # Run regular command and stream output
+                process = subprocess.Popen(
+                    cmd.command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=workspace_path
+                )
+                
+                print(f"DEBUG: Process started with PID: {process.pid}")
+                
+                # Stream output line by line
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        print(f"DEBUG: Yielding line: {repr(line)}")
+                        yield f"data: {json.dumps({'output': line})}\n\n"
+                        await asyncio.sleep(0.01)  # Small delay to prevent blocking
+                
+                # Send completion status
+                process.wait()
+                print(f"DEBUG: Process finished with return code: {process.returncode}")
+                yield f"data: {json.dumps({'done': True, 'return_code': process.returncode})}\n\n"
+            
+        except Exception as e:
+            print(f"DEBUG: Error in stream_output: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(stream_output(), media_type="text/event-stream")
 
 if __name__ == "__main__":
     import uvicorn

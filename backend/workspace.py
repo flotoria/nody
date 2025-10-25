@@ -2,6 +2,7 @@
 Workspace and terminal management functionality.
 """
 import os
+import tempfile
 from typing import Optional, List, Dict, Any
 
 from fastapi import HTTPException
@@ -10,16 +11,17 @@ from config import CANVAS_DIR
 
 
 class WorkspaceManager:
-    """Manage workspaces in canvas/ directory"""
+    """Manage workspaces in git/ directory"""
     
-    def __init__(self, canvas_dir: str = None):
-        if canvas_dir is None:
-            # Default to parent directory's canvas/ folder (nody/canvas/)
-            canvas_dir = CANVAS_DIR
-        self.canvas_dir = os.path.abspath(canvas_dir)  # Make absolute path
-        os.makedirs(self.canvas_dir, exist_ok=True)
-        self.active_workspace: Optional[str] = self.canvas_dir
-        print(f"DEBUG: WorkspaceManager initialized with canvas_dir: {self.canvas_dir}")
+    def __init__(self, git_dir: str = None):
+        if git_dir is None:
+            # Default to parent directory's git/ folder (nody/git/)
+            git_dir = os.path.join(os.path.dirname(__file__), "..", "git")
+        self.git_dir = os.path.abspath(git_dir)  # sMake absolute path
+        os.makedirs(self.git_dir, exist_ok=True)
+        self.active_workspace: Optional[str] = None  # Start with no active workspace
+        self.temp_workspace: Optional[str] = None  # Temporary isolated workspace
+        print(f"DEBUG: WorkspaceManager initialized with git_dir: {self.git_dir}")
         print(f"DEBUG: Active workspace set to: {self.active_workspace}")
     
     def get_active_workspace(self) -> Optional[str]:
@@ -29,14 +31,14 @@ class WorkspaceManager:
     def set_active_workspace(self, workspace_name: str) -> Dict[str, Any]:
         """
         Set active workspace by name.
-        Workspace must exist in backend/canvas/
+        Workspace must exist in git/
         """
-        workspace_path = os.path.join(self.canvas_dir, workspace_name)
+        workspace_path = os.path.join(self.git_dir, workspace_name)
         
         if not os.path.exists(workspace_path):
             return {
                 "success": False,
-                "error": f"Workspace '{workspace_name}' not found in canvas/"
+                "error": f"Workspace '{workspace_name}' not found in git/"
             }
         
         self.active_workspace = workspace_path
@@ -47,14 +49,14 @@ class WorkspaceManager:
         }
     
     def list_workspaces(self) -> List[Dict[str, Any]]:
-        """List all workspaces in canvas directory"""
+        """List all workspaces in git directory"""
         workspaces = []
         
-        if not os.path.exists(self.canvas_dir):
+        if not os.path.exists(self.git_dir):
             return workspaces
         
-        for item in os.listdir(self.canvas_dir):
-            workspace_path = os.path.join(self.canvas_dir, item)
+        for item in os.listdir(self.git_dir):
+            workspace_path = os.path.join(self.git_dir, item)
             if os.path.isdir(workspace_path):
                 has_git = os.path.exists(os.path.join(workspace_path, '.git'))
                 workspaces.append({
@@ -65,7 +67,7 @@ class WorkspaceManager:
         
         return workspaces
     
-    def ensure_active_workspace(self) -> Dict[str, Any]:
+    def ensure_active_workspace(self, command: str = None) -> Dict[str, Any]:
         """Ensure there's an active workspace"""
         if self.active_workspace:
             return {"success": True, "workspace": self.active_workspace}
@@ -78,11 +80,14 @@ class WorkspaceManager:
             print(f"DEBUG: Auto-selected workspace: {self.active_workspace}")
             return {"success": True, "workspace": self.active_workspace}
         
-        print(f"DEBUG: No workspaces found in {self.canvas_dir}")
-        return {
-            "success": False,
-            "error": "No active workspace. Clone a repository first using: git clone <repo-url>"
-        }
+        # Create a temporary isolated workspace to prevent git tracking
+        if not self.temp_workspace:
+            self.temp_workspace = tempfile.mkdtemp(prefix="nody_terminal_")
+            print(f"DEBUG: Created temporary isolated workspace: {self.temp_workspace}")
+        
+        print(f"DEBUG: No workspaces found, using temporary isolated workspace: {self.temp_workspace}")
+        self.active_workspace = self.temp_workspace
+        return {"success": True, "workspace": self.temp_workspace}
 
 
 class TerminalExecutor:
@@ -106,11 +111,11 @@ class TerminalExecutor:
         import subprocess
         
         try:
-            # SECURITY: Ensure workspace is in canvas directory
-            if 'canvas' not in workspace_path:
+            # SECURITY: Ensure workspace is in git directory or temporary workspace
+            if 'git' not in workspace_path and 'nody_terminal_' not in workspace_path:
                 return {
                     "success": False,
-                    "error": "Workspace must be in canvas directory",
+                    "error": "Workspace must be in git directory or temporary workspace",
                     "stdout": "",
                     "stderr": "",
                     "return_code": -1
