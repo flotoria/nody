@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Save, X, Maximize2, Minimize2, AlertCircle } from "lucide-react"
-import Editor from "@monaco-editor/react"
-import * as monaco from "monaco-editor"
+import dynamic from "next/dynamic"
+
+const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false })
 
 interface CodeEditorProps {
   content: string
@@ -23,7 +24,7 @@ export function CodeEditor({ content, fileType, onSave, onClose, isModified = fa
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editorDimensions, setEditorDimensions] = useState({ width: '90vw', height: '90vh' })
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const editorRef = useRef<any>(null)
 
   // Set responsive dimensions after component mounts (client-side only)
   useEffect(() => {
@@ -85,7 +86,7 @@ export function CodeEditor({ content, fileType, onSave, onClose, isModified = fa
     }
   }, [handleSave, onClose])
 
-  const handleEditorDidMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
+  const handleEditorDidMount = useCallback((editor: any) => {
     editorRef.current = editor
     
     // Configure editor options
@@ -122,14 +123,7 @@ export function CodeEditor({ content, fileType, onSave, onClose, isModified = fa
       }
     })
 
-    // Add keyboard shortcuts
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      handleSave()
-    })
-    
-    editor.addCommand(monaco.KeyCode.Escape, () => {
-      onClose()
-    })
+    // Keyboard shortcuts are handled by the component's onKeyDown
   }, [handleSave, onClose])
 
   const getMonacoLanguage = useCallback((fileType: string): string => {
