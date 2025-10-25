@@ -3,6 +3,7 @@ Main FastAPI application for Nody VDE Backend.
 """
 import json
 from typing import Optional
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -218,6 +219,170 @@ async def generate_file_code(file_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
+
+
+@app.post("/files/{file_id}/run")
+async def run_file(file_id: str):
+    """Run a specific file based on its type and content."""
+    try:
+        # Get file metadata and content
+        metadata = file_db.load_metadata()
+        if file_id not in metadata:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        node_data = metadata[file_id]
+        if node_data.get("type") != "file":
+            raise HTTPException(status_code=400, detail="Node is not a file type")
+        
+        file_name = node_data.get("fileName", f"file_{file_id}")
+        file_path = CANVAS_DIR / file_name
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File does not exist on filesystem")
+        
+        # Read file content
+        try:
+            content = file_path.read_text(encoding='utf-8')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+        
+        # Determine run command based on file type and content
+        command = _determine_run_command(file_name, content)
+        if not command:
+            raise HTTPException(status_code=400, detail="File type is not runnable")
+        
+        # Determine working directory
+        working_dir = _determine_working_directory(file_path)
+        
+        # Execute command using existing terminal infrastructure
+        import subprocess
+        import os
+        
+        # Execute command in working directory
+        try:
+            process = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(working_dir),
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            result = {
+                "success": process.returncode == 0,
+                "stdout": process.stdout,
+                "stderr": process.stderr,
+                "return_code": process.returncode
+            }
+            
+            # Send output to console
+            output_logger.write_output(f"$ {command}", "INFO")
+            
+            if result["success"]:
+                if result["stdout"]:
+                    for line in result["stdout"].split('\n'):
+                        if line.strip():
+                            output_logger.write_output(line.strip(), "INFO")
+            else:
+                if result["stderr"]:
+                    for line in result["stderr"].split('\n'):
+                        if line.strip():
+                            output_logger.write_output(line.strip(), "ERROR")
+            
+        except subprocess.TimeoutExpired:
+            result = {
+                "success": False,
+                "stdout": "",
+                "stderr": "Command timed out after 120 seconds",
+                "return_code": -1
+            }
+            output_logger.write_output(f"$ {command}", "INFO")
+            output_logger.write_output("Command timed out after 120 seconds", "ERROR")
+        except Exception as e:
+            result = {
+                "success": False,
+                "stdout": "",
+                "stderr": str(e),
+                "return_code": -1
+            }
+            output_logger.write_output(f"$ {command}", "INFO")
+            output_logger.write_output(f"Error: {str(e)}", "ERROR")
+        
+        return {
+            "message": f"Successfully executed {file_name}",
+            "file_id": file_id,
+            "file_name": file_name,
+            "command": command,
+            "working_directory": str(working_dir),
+            "output": result.get("stdout", ""),
+            "error": result.get("stderr", ""),
+            "exit_code": result.get("return_code", 0),
+            "success": result.get("success", False)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error running file: {str(e)}")
+
+
+def _determine_run_command(file_name: str, content: str) -> str:
+    """Determine the appropriate run command for a file based on its type and content."""
+    file_ext = file_name.lower().split('.')[-1] if '.' in file_name else ''
+    
+    # Python files
+    if file_ext == 'py':
+        # Check for FastAPI
+        if 'from fastapi import' in content or 'FastAPI(' in content:
+            if 'uvicorn' in content:
+                return f"uvicorn {file_name.replace('.py', '')}:app --reload"
+            else:
+                return f"python {file_name}"
+        # Check for Flask
+        elif 'from flask import' in content or 'Flask(' in content:
+            return f"python {file_name}"
+        # Check for Django
+        elif 'django' in content.lower() or 'manage.py' in file_name:
+            return f"python {file_name}"
+        # Regular Python script
+        else:
+            return f"python {file_name}"
+    
+    # Node.js files
+    elif file_ext == 'js':
+        # Check for Express
+        if 'express' in content.lower() or 'app.listen' in content:
+            return f"node {file_name}"
+        # Regular Node.js script
+        else:
+            return f"node {file_name}"
+    
+    # TypeScript files
+    elif file_ext == 'ts':
+        return f"ts-node {file_name}"
+    
+    # Shell scripts
+    elif file_ext == 'sh':
+        return f"bash {file_name}"
+    
+    # Batch files
+    elif file_ext == 'bat':
+        return file_name
+    
+    # PowerShell files
+    elif file_ext == 'ps1':
+        return f"powershell {file_name}"
+    
+    # Not runnable
+    return None
+
+
+def _determine_working_directory(file_path: Path) -> Path:
+    """Determine the appropriate working directory for running a file."""
+    # For now, use the file's directory
+    # This could be enhanced to detect project root, etc.
+    return file_path.parent
 
 
 # ==================== FOLDER OPERATIONS ====================

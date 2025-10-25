@@ -395,6 +395,21 @@ export class FileAPI {
     return { success: true, data }
   }
 
+  static async runFile(fileId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    const response = await fetch(`${API_BASE_URL}/files/${fileId}/run`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      return { 
+        success: false, 
+        error: errorData.detail || 'Failed to run file' 
+      }
+    }
+    const data = await response.json()
+    return { success: true, data }
+  }
+
   static async runProject(): Promise<{ success: boolean; progress?: string[] }> {
     const response = await fetch(`${API_BASE_URL}/run`, {
       method: 'POST',

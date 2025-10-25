@@ -103,9 +103,11 @@ type FileNodeData = {
   isModified?: boolean
   parentFolder?: string | null
   generating: boolean
+  running: boolean
   description?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
+  onRun?: (id: string) => void
   onDelete: (id: string) => void
 }
 
@@ -187,6 +189,17 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
           >
             Open
           </Button>
+          {hasExistingContent && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-green-600"
+              onClick={() => data.onRun?.(id)}
+              disabled={data.running}
+            >
+              {data.running ? "Running..." : "Run"}
+            </Button>
+          )}
           {!hasExistingContent && data.description && data.description.trim() && (
             <Button
               size="sm"
@@ -356,6 +369,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   }, [onNodesChangeBase, flowNodes])
   const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
+  const [runningNodeId, setRunningNodeId] = useState<string | null>(null)
   const [expandedNode, setExpandedNode] = useState<string | null>(null)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -569,6 +583,27 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     [],
   )
 
+  const handleRunFile = useCallback(
+    async (id: string) => {
+      setRunningNodeId(id)
+      try {
+        const result = await FileAPI.runFile(id)
+        if (result.success) {
+          toast.success(`File executed successfully`)
+          // Output is displayed in the console via output_logger
+        } else {
+          toast.error(`Failed to run file: ${result.error}`)
+        }
+      } catch (error) {
+        console.error("Failed to run file:", error)
+        toast.error("Failed to run file")
+      } finally {
+        setRunningNodeId(null)
+      }
+    },
+    [],
+  )
+
   const handleFileSave = useCallback(async (nodeId: string, content: string) => {
     try {
       await FileAPI.updateFileContent(nodeId, content)
@@ -674,9 +709,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isModified: record.isModified,
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
+          running: runningNodeId === record.id,
           description: meta?.description,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
+          onRun: handleRunFile,
           onDelete: handleFileDelete,
         },
         style: { width: NODE_WIDTH, zIndex: 2 },
@@ -734,8 +771,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     folderRecords,
     metadataRecords,
     generatingNodeId,
+    runningNodeId,
     handleFileDelete,
     handleGenerateCode,
+    handleRunFile,
     openEditor,
     customGenericNodes,
     selectedNodeId,
