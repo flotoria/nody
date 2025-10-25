@@ -157,18 +157,20 @@ Key responsibilities:
 
 CRITICAL RULES:
 1. You MUST ONLY generate file nodes (type: "file")
-2. You do NOT generate process, data, api, or database nodes
-3. You do NOT generate code content for nodes
-4. Each file node must have:
+2. You MUST ONLY generate Python files (.py extension)
+3. You do NOT generate process, data, api, or database nodes
+4. You do NOT generate code content for nodes
+5. Each file node must have:
    - id: Unique identifier (e.g., "node_1", "node_2", etc.)
    - type: MUST be "file"
    - description: Detailed description of what the file does
-   - fileName: The file name (e.g., "main.py", "utils.js", "config.json")
+   - fileName: The file name (MUST end with .py, e.g., "main.py", "utils.py", "config.py")
    - x: X coordinate (100, 200, 300, etc.)
    - y: Y coordinate (100, 200, 300, etc.)
 
-5. fileName and description can be different - description explains what the file does, fileName is the actual file name
-6. Check for fileName conflicts - if a fileName already exists, use a different name
+6. fileName and description can be different - description explains what the file does, fileName is the actual file name
+7. Check for fileName conflicts - if a fileName already exists, use a different name
+8. ALL files must be Python files with .py extension
 
 CRITICAL: When the user asks you to create nodes, you MUST use the add_nodes_to_metadata tool. Do NOT just describe nodes in your response."""
     }
@@ -189,8 +191,20 @@ def generate_nodes_from_conversation(client, agent_config, conversation_history)
         List of generated nodes
     """
     try:
-        # Prepare messages for the agent
+        # Load current metadata to provide context
+        current_metadata = load_metadata()
+        
+        # Prepare messages for the agent with context
         messages = []
+        
+        # Add context about existing nodes
+        if current_metadata:
+            context_message = f"""Current nodes in the canvas:
+{json.dumps(current_metadata, indent=2)}
+
+Please analyze the user's request and generate NEW nodes. Do NOT duplicate existing nodes."""
+            messages.append({"role": "user", "content": context_message})
+        
         for msg in conversation_history:
             messages.append({"role": msg["role"], "content": msg["content"]})
         
@@ -278,7 +292,6 @@ def generate_nodes_from_conversation(client, agent_config, conversation_history)
                 return json.loads(json_match.group())
         except json.JSONDecodeError:
             pass
-    
         return None
     except Exception as e:
         print(f"Error generating nodes: {e}")

@@ -71,23 +71,30 @@ class NodeMetadata(BaseModel):
 # In-memory storage for demo (replace with database later)
 files_db = {}
 
-# Letta agent setup
+# Agent setup
 _client = None
 _agent = None
+_node_gen_client = None
+_node_gen_agent_config = None
 
-# Initialize Letta agent on startup
+# Initialize agents on startup
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the Letta agent on startup."""
-    global _client, _agent
+    """Initialize the agents on startup."""
+    global _client, _agent, _node_gen_client, _node_gen_agent_config
     try:
         _client, _agent = create_file_system_agent()
         print(f"Letta agent initialized with ID: {_agent.id}")
+        
+        # Initialize node generation agent
+        _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
+        print("Node generation agent initialized")
     except Exception as e:
-        print(f"Failed to initialize Letta agent: {e}")
+        print(f"Failed to initialize agents: {e}")
         print("Make sure you have:")
         print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
         print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
+        print("3. Set ANTHROPIC_API_KEY environment variable")
 
 # Ensure canvas/files directory exists
 CANVAS_DIR = os.path.join(os.path.dirname(__file__), "..", "canvas", "files")
@@ -253,14 +260,91 @@ def clear_output():
     except IOError as e:
         print(f"Error clearing output: {e}")
 
+def create_empty_files_for_metadata():
+    """Create empty Python files for all nodes in metadata that don't have files yet"""
+    try:
+        metadata = load_metadata()
+        created_files = []
+        
+        for node_id, node_meta in metadata.items():
+            if node_meta.get("type") == "file":
+                file_name = node_meta.get("fileName", f"file_{node_id}.py")
+                file_path = os.path.join(CANVAS_DIR, file_name)
+                
+                # Create empty file if it doesn't exist
+                if not os.path.exists(file_path):
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write("# Empty Python file\n")
+                    created_files.append(file_name)
+                    print(f"Created empty file: {file_name}")
+        
+        return created_files
+    except Exception as e:
+        print(f"Error creating empty files: {e}")
+        return []
+
 @app.get("/")
 async def root():
     return {"message": "Nody VDE Backend API"}
 
 @app.get("/files", response_model=List[FileNode])
 async def get_files():
-    """Get all file nodes"""
-    return list(files_db.values())
+    """Get all file nodes from metadata"""
+    try:
+        metadata = load_metadata()
+        file_nodes = []
+        
+        for node_id, node_meta in metadata.items():
+            if node_meta.get("type") == "file":
+                file_name = node_meta.get("fileName", f"file_{node_id}")
+                file_path = os.path.join(CANVAS_DIR, file_name)
+                
+                # Read file content if it exists
+                content = ""
+                if os.path.exists(file_path):
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except Exception as e:
+                        print(f"Error reading file {file_path}: {e}")
+                
+                # Determine file type from extension
+                file_extension = os.path.splitext(file_name)[1].lower()
+                file_type_map = {
+                    '.py': 'python',
+                    '.js': 'javascript', 
+                    '.ts': 'typescript',
+                    '.json': 'json',
+                    '.html': 'html',
+                    '.css': 'css',
+                    '.md': 'markdown',
+                    '.txt': 'text',
+                    '.java': 'java',
+                    '.cpp': 'cpp',
+                    '.c': 'c'
+                }
+                file_type = file_type_map.get(file_extension, 'text')
+                
+                # Create FileNode object
+                file_node = FileNode(
+                    id=node_id,
+                    label=file_name,
+                    type="file",
+                    filePath=file_name,
+                    fileType=file_type,
+                    content=content,
+                    x=node_meta.get("x", 0),
+                    y=node_meta.get("y", 0),
+                    status="idle",
+                    isExpanded=False,
+                    isModified=False
+                )
+                file_nodes.append(file_node)
+        
+        return file_nodes
+    except Exception as e:
+        print(f"Error loading files from metadata: {e}")
+        return []
 
 @app.get("/files/{file_id}", response_model=FileNode)
 async def get_file(file_id: str):
@@ -347,17 +431,13 @@ async def delete_file(file_id: str):
 @app.put("/files/{file_id}/position")
 async def update_file_position(file_id: str, x: float, y: float):
     """Update file node position"""
-    if file_id not in files_db:
+    # Check if node exists in metadata
+    metadata = load_metadata()
+    if file_id not in metadata:
         raise HTTPException(status_code=404, detail="File not found")
     
-    files_db[file_id].x = x
-    files_db[file_id].y = y
-    
-    # Update metadata position
-    node = files_db[file_id]
-    # Preserve existing description instead of overriding it
-    existing_metadata = load_metadata()
-    existing_description = existing_metadata.get(file_id, {}).get("description", f"File: {node.filePath} ({node.fileType})")
+    # Update position in metadata
+    existing_description = metadata[file_id].get("description", f"File: {metadata[file_id].get('fileName', 'unknown')}")
     update_node_metadata(file_id, "file", existing_description, x, y)
     
     return {"message": "File position updated successfully"}
@@ -368,14 +448,26 @@ class DescriptionUpdate(BaseModel):
 @app.put("/files/{file_id}/description")
 async def update_file_description(file_id: str, description_update: DescriptionUpdate):
     """Update file node description"""
-    if file_id not in files_db:
+    # Check if node exists in metadata
+    metadata = load_metadata()
+    if file_id not in metadata:
         raise HTTPException(status_code=404, detail="File not found")
     
-    # Update metadata
-    node = files_db[file_id]
-    update_node_metadata(file_id, "file", description_update.description, node.x, node.y)
+    # Update description in metadata
+    node_meta = metadata[file_id]
+    update_node_metadata(file_id, "file", description_update.description, node_meta.get("x", 0), node_meta.get("y", 0))
     
     return {"message": "File description updated successfully"}
+
+@app.get("/metadata/raw")
+async def get_metadata_raw():
+    """Get raw metadata.json content"""
+    try:
+        with open(METADATA_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return {"content": content}
+    except Exception as e:
+        return {"content": "{}", "error": str(e)}
 
 @app.get("/metadata")
 async def get_metadata():
@@ -476,6 +568,57 @@ async def letta_chat(request: AgentChatRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+
+# Node generation agent chat endpoint
+class NodeChatRequest(BaseModel):
+    messages: List[AgentMessage]
+
+class NodeChatResponse(BaseModel):
+    message: str
+    generated_nodes: Optional[List[dict]] = None
+
+@app.post("/chat/nodes", response_model=NodeChatResponse)
+async def chat_nodes(request: NodeChatRequest):
+    """
+    Chat with the node generation agent to create nodes based on conversation.
+    
+    Args:
+        request: Chat request with messages
+        
+    Returns:
+        Chat response with generated nodes
+    """
+    if not _node_gen_client or not _node_gen_agent_config:
+        raise HTTPException(status_code=503, detail="Node generation agent not initialized")
+    
+    try:
+        # Convert messages to the format expected by Anthropic
+        anthropic_messages = []
+        for msg in request.messages:
+            anthropic_messages.append({"role": msg.role, "content": msg.content})
+        
+        # Generate nodes using Anthropic with agent config
+        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        
+        # Create empty files for any new nodes
+        if generated_nodes:
+            create_empty_files_for_metadata()
+        
+        # Create response message
+        assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
+        if generated_nodes:
+            assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
+        
+        return NodeChatResponse(
+            message=assistant_message,
+            generated_nodes=generated_nodes
+        )
+        
+    except Exception as e:
+        print(f"Error processing chat: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
 
 @app.post("/letta/generate-code")
 async def generate_code_from_metadata():

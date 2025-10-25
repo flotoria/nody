@@ -139,6 +139,14 @@ export class FileAPI {
     console.log('FileAPI: updateFileDescription successful')
   }
 
+  static async getMetadataRaw(): Promise<{ content: string }> {
+    const response = await fetch(`${API_BASE_URL}/metadata/raw`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch metadata')
+    }
+    return response.json()
+  }
+
   static async getMetadata(): Promise<Record<string, NodeMetadata>> {
     const response = await fetch(`${API_BASE_URL}/metadata`)
     if (!response.ok) {
@@ -195,7 +203,7 @@ export class FileAPI {
   }
 
   static async chat(messages: ChatMessage[]): Promise<ChatResponse> {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
+    const response = await fetch(`${API_BASE_URL}/chat/nodes`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

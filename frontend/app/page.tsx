@@ -25,10 +25,11 @@ export default function NodeFlowPage() {
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
 
-  // Poll for real-time output messages
+  // Poll for real-time output messages and metadata updates
   useEffect(() => {
-    const pollOutput = async () => {
+    const pollUpdates = async () => {
       try {
+        // Poll output messages
         const output = await FileAPI.getOutput()
         if (output.messages && output.messages.length > 0) {
           const formattedMessages = output.messages.map(msg => ({
@@ -38,16 +39,28 @@ export default function NodeFlowPage() {
           }))
           setConsoleMessages(formattedMessages)
         }
+        
+        // Poll raw metadata.json directly
+        const metadataResponse = await FileAPI.getMetadataRaw()
+        const rawMetadata = JSON.parse(metadataResponse.content)
+        const updatedFiles = await FileAPI.getFiles()
+        
+        // Debug logging
+        console.log('Polling update - Raw metadata keys:', Object.keys(rawMetadata).length, 'Files:', updatedFiles.length)
+        console.log('Raw metadata:', rawMetadata)
+        
+        setMetadata(rawMetadata)
+        setNodes(updatedFiles)
       } catch (error) {
-        console.error('Failed to fetch output:', error)
+        console.error('Failed to fetch updates:', error)
       }
     }
 
-    // Poll every 2 seconds for output updates
-    const interval = setInterval(pollOutput, 2000)
+    // Poll every 500ms for updates (very aggressive)
+    const interval = setInterval(pollUpdates, 500)
 
     // Initial poll
-    pollOutput()
+    pollUpdates()
 
     return () => clearInterval(interval)
   }, [])
@@ -84,6 +97,17 @@ export default function NodeFlowPage() {
       console.error('Failed to generate files:', error)
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  const handleMetadataUpdate = async () => {
+    try {
+      const updatedMetadata = await FileAPI.getMetadata()
+      setMetadata(updatedMetadata)
+      const updatedFiles = await FileAPI.getFiles()
+      setNodes(updatedFiles)
+    } catch (error) {
+      console.error('Failed to update metadata:', error)
     }
   }
 
@@ -161,7 +185,7 @@ export default function NodeFlowPage() {
 
         {/* Right Sidebar */}
         <Panel defaultSize={20} minSize={15} maxSize={35} className="min-w-0">
-          <RightSidebar />
+          <RightSidebar onMetadataUpdate={handleMetadataUpdate} />
         </Panel>
       </PanelGroup>
     </div>
