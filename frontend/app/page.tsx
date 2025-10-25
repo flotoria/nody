@@ -10,6 +10,7 @@ import Link from "next/link"
 import { Home } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
 
 interface ConsoleMessage {
   timestamp: string
@@ -19,7 +20,6 @@ interface ConsoleMessage {
 
 export default function NodeFlowPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [isRunning, setIsRunning] = useState(false)
   const [nodes, setNodes] = useState<FileNode[]>([])
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
@@ -42,14 +42,14 @@ export default function NodeFlowPage() {
       }
     }
 
-    // Poll every 500ms when running
-    const interval = setInterval(pollOutput, 500)
+    // Poll every 2 seconds for output updates
+    const interval = setInterval(pollOutput, 2000)
 
     // Initial poll
     pollOutput()
 
     return () => clearInterval(interval)
-  }, [isRunning])
+  }, [])
 
   const handleDataChange = (updatedNodes: FileNode[], updatedMetadata: Record<string, NodeMetadata>) => {
     setNodes(updatedNodes)
@@ -71,57 +71,63 @@ export default function NodeFlowPage() {
     }
   }
 
-  const handleToggleRun = async () => {
-    if (!isRunning) {
-      setIsRunning(true)
-      try {
-        await FileAPI.runProject()
-        // Refresh files and metadata after running
-        const files = await FileAPI.getFiles()
-        const metadata = await FileAPI.getMetadata()
-        setNodes(files)
-        setMetadata(metadata)
-      } catch (error) {
-        console.error('Failed to run project:', error)
-      } finally {
-        setIsRunning(false)
-      }
-    } else {
-      setIsRunning(false)
-    }
-  }
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
-      <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} onUpdateDescription={handleUpdateDescription} />
+      <PanelGroup direction="horizontal" className="flex-1">
+        {/* Left Sidebar */}
+        <Panel defaultSize={20} minSize={15} maxSize={35} className="min-w-0">
+          <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} onUpdateDescription={handleUpdateDescription} />
+        </Panel>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-12 shrink-0 neu-inset-sm bg-background px-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
-            <span className="text-sm text-muted-foreground">Visual Development Environment</span>
-          </div>
-          <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
-            <Link href="/onboarding">
-              <Home className="w-4 h-4 mr-2" />
-              Home
-            </Link>
-          </Button>
-        </header>
+        <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 transition-colors cursor-col-resize" />
 
-        <Canvas
-          selectedNode={selectedNode}
-          onSelectNode={setSelectedNode}
-          isRunning={isRunning}
-          onToggleRun={handleToggleRun}
-          onDataChange={handleDataChange}
-        />
+        {/* Main Content Area */}
+        <Panel defaultSize={60} minSize={30} className="min-w-0">
+          <PanelGroup direction="vertical" className="h-full">
+            {/* Header */}
+            <Panel defaultSize={8} minSize={6} maxSize={12} className="min-h-0">
+              <header className="h-full neu-inset-sm bg-background px-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
+                  <span className="text-sm text-muted-foreground">Visual Development Environment</span>
+                </div>
+                <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
+                  <Link href="/onboarding">
+                    <Home className="w-4 h-4 mr-2" />
+                    Home
+                  </Link>
+                </Button>
+              </header>
+            </Panel>
 
+            <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 transition-colors cursor-row-resize" />
 
-        <BottomDock consoleMessages={consoleMessages} />
-      </div>
+            {/* Canvas */}
+            <Panel defaultSize={70} minSize={40} className="min-h-0">
+              <Canvas
+                selectedNode={selectedNode}
+                onSelectNode={setSelectedNode}
+                onDataChange={handleDataChange}
+              />
+            </Panel>
 
-      <RightSidebar />
+            <PanelResizeHandle className="h-1 bg-border hover:bg-primary/50 transition-colors cursor-row-resize" />
+
+            {/* Bottom Dock */}
+            <Panel defaultSize={22} minSize={15} maxSize={40} className="min-h-0">
+              <BottomDock consoleMessages={consoleMessages} />
+            </Panel>
+          </PanelGroup>
+        </Panel>
+
+        <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 transition-colors cursor-col-resize" />
+
+        {/* Right Sidebar */}
+        <Panel defaultSize={20} minSize={15} maxSize={35} className="min-w-0">
+          <RightSidebar />
+        </Panel>
+      </PanelGroup>
     </div>
   )
 }

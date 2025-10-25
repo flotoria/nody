@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { Sparkles, Database, Zap, ArrowRight, Trash2, FileText, ChevronDown, ChevronRight } from "lucide-react"
+import { Sparkles, Database, Zap, ArrowRight, Trash2, FileText, ChevronDown, ChevronRight, Code2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface NodeProps {
@@ -25,6 +25,8 @@ interface NodeProps {
   isExpanded?: boolean
   isModified?: boolean
   onExpand?: (nodeId: string) => void
+  onGenerateCode?: (nodeId: string) => void
+  isGenerating?: boolean
 }
 
 const nodeIcons = {
@@ -62,6 +64,8 @@ export function Node({
   isExpanded,
   isModified,
   onExpand,
+  onGenerateCode,
+  isGenerating,
 }: NodeProps) {
   const Icon = nodeIcons[type as keyof typeof nodeIcons] || ArrowRight
 
@@ -91,7 +95,7 @@ export function Node({
             <span className="font-semibold text-sm text-foreground text-soft-shadow">{label}</span>
             {isModified && <span className="text-xs text-orange-400">●</span>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             {type === "file" && onExpand && (
               <Button
                 size="sm"
@@ -103,6 +107,25 @@ export function Node({
                 }}
               >
                 {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+              </Button>
+            )}
+            {type === "file" && onGenerateCode && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0 neu-raised-sm neu-hover"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onGenerateCode(id)
+                }}
+                disabled={isGenerating}
+                title={isGenerating ? "Generating code..." : "Generate code from description"}
+              >
+                {isGenerating ? (
+                  <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3 text-purple-400" />
+                )}
               </Button>
             )}
             <div className={`w-2 h-2 rounded-full ${statusColors[status]}`} />

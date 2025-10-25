@@ -297,4 +297,69 @@
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: oklch(0.28 0.01 250);
   }
+
+  /* Resizable Panel Handles */
+  [data-panel-resize-handle] {
+    background: hsl(var(--border));
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  [data-panel-resize-handle]:hover {
+    background: hsl(var(--primary) / 0.5);
+  }
+
+  [data-panel-resize-handle]:active {
+    background: hsl(var(--primary));
+  }
+
+  /* Vertical resize handle */
+  [data-panel-resize-handle][data-panel-group-direction="horizontal"] {
+    width: 4px;
+    cursor: col-resize;
+  }
+
+  [data-panel-resize-handle][data-panel-group-direction="horizontal"]:hover {
+    width: 6px;
+  }
+
+  /* Horizontal resize handle */
+  [data-panel-resize-handle][data-panel-group-direction="vertical"] {
+    height: 4px;
+    cursor: row-resize;
+  }
+
+  [data-panel-resize-handle][data-panel-group-direction="vertical"]:hover {
+    height: 6px;
+  }
+
+  /* Resize handle indicator */
+  [data-panel-resize-handle]::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 2px;
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 50%;
+    transition: all 0.2s ease;
+  }
+
+  [data-panel-resize-handle]:hover::before {
+    background: hsl(var(--primary));
+    width: 4px;
+    height: 4px;
+  }
+
+  [data-panel-resize-handle][data-panel-group-direction="vertical"]::before {
+    width: 8px;
+    height: 2px;
+  }
+
+  [data-panel-resize-handle][data-panel-group-direction="vertical"]:hover::before {
+    width: 12px;
+    height: 3px;
+  }
 }

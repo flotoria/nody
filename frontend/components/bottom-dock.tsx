@@ -93,7 +93,7 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
   }
 
   return (
-    <div className="h-64 max-h-64 shrink-0 neu-inset bg-background flex flex-col border-t-2 overflow-hidden">
+    <div className="h-full w-full neu-inset bg-background flex flex-col border-t-2 overflow-hidden">
       <Tabs defaultValue="console" className="flex-1 flex flex-col overflow-hidden min-h-0">
         <div className="h-12 flex items-center justify-between px-4 border-b border-border">
           <TabsList className="h-8 bg-transparent p-0 gap-1">

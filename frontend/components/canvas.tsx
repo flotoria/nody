@@ -3,7 +3,7 @@
 import type React from "react"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { ZoomIn, ZoomOut, Maximize2, Play, Square } from "lucide-react"
+import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Node } from "@/components/node"
 import { CodeEditor } from "@/components/code-editor"
@@ -14,8 +14,6 @@ import { toast } from "sonner"
 interface CanvasProps {
   selectedNode: string | null
   onSelectNode: (id: string | null) => void
-  isRunning: boolean
-  onToggleRun: () => void
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
   onDataChange?: (nodes: FileNode[], metadata: Record<string, NodeMetadata>) => void
 }
@@ -54,7 +52,7 @@ const initialEdges: Edge[] = [
   { id: "e2-3", from: "2", to: "3" },
 ]
 
-export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onDataChange }: CanvasProps) {
+export function Canvas({ selectedNode, onSelectNode, onDataChange }: CanvasProps) {
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [nodes, setNodes] = useState<NodeData[]>([])
@@ -70,6 +68,7 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
   const [showFileModal, setShowFileModal] = useState(false)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
+  const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -261,7 +260,8 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
       ))
     } catch (error) {
       console.error('Failed to save file:', error)
-      // You could add a toast notification here
+      // Re-throw the error so the CodeEditor can handle it
+      throw error
     }
   }, [])
 
@@ -300,6 +300,38 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
     setShowFileModal(false)
     setPendingFileDrop(null)
   }, [pendingFileDrop])
+
+  const handleGenerateCode = useCallback(async (nodeId: string) => {
+    try {
+      setGeneratingNodeId(nodeId)
+      const result = await FileAPI.generateFileCode(nodeId)
+      if (result.success) {
+        toast.success('Code generated successfully', {
+          description: `Generated ${result.data?.file_name}`,
+          duration: 2000,
+        })
+        
+        // Refresh files and metadata after generation
+        const files = await FileAPI.getFiles()
+        const metadata = await FileAPI.getMetadata()
+        setNodes(files as NodeData[])
+        setMetadata(metadata)
+      } else {
+        toast.error('Failed to generate code', {
+          description: result.error || 'Unknown error occurred',
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to generate code:', error)
+      toast.error('Failed to generate code', {
+        description: 'Network error occurred',
+        duration: 3000,
+      })
+    } finally {
+      setGeneratingNodeId(null)
+    }
+  }, [])
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -357,42 +389,9 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
     }
   }, [handleMouseMove, handleMouseUp, handleWheel])
 
-  useEffect(() => {
-    if (isRunning) {
-      const timer1 = setTimeout(() => {
-        setNodes((prev) => prev.map((n) => (n.id === "1" ? { ...n, status: "running" } : n)))
-      }, 500)
-      const timer2 = setTimeout(() => {
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === "1" ? { ...n, status: "success" } : n.id === "2" ? { ...n, status: "running" } : n,
-          ),
-        )
-      }, 1500)
-      const timer3 = setTimeout(() => {
-        setNodes((prev) =>
-          prev.map((n) =>
-            n.id === "2" ? { ...n, status: "success" } : n.id === "3" ? { ...n, status: "running" } : n,
-          ),
-        )
-      }, 3000)
-      const timer4 = setTimeout(() => {
-        setNodes((prev) => prev.map((n) => (n.id === "3" ? { ...n, status: "success" } : n)))
-      }, 4000)
-
-      return () => {
-        clearTimeout(timer1)
-        clearTimeout(timer2)
-        clearTimeout(timer3)
-        clearTimeout(timer4)
-      }
-    } else {
-      setNodes((prev) => prev.map((n) => ({ ...n, status: "idle" })))
-    }
-  }, [isRunning])
 
   return (
-    <div className="flex-1 relative overflow-hidden neu-inset bg-background">
+    <div className="h-full w-full relative overflow-hidden neu-inset bg-background">
       {loading ? (
         <div className="flex items-center justify-center h-full">
           <div className="text-center">
@@ -406,29 +405,6 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
         <>
       {/* Canvas controls - top right */}
       <div className="absolute top-4 right-4 z-10 flex gap-2">
-        <Button
-          onClick={onToggleRun}
-          size="sm"
-          variant="ghost"
-          className={`neu-raised neu-hover neu-active ${
-            isRunning ? "bg-destructive/20 text-destructive" : "bg-primary/20 text-primary"
-          }`}
-        >
-          {isRunning ? (
-            <>
-              <Square className="w-4 h-4 mr-2" />
-              Stop
-            </>
-          ) : (
-            <>
-              <Play className="w-4 h-4 mr-2" />
-              Run
-            </>
-          )}
-        </Button>
-
-        <div className="w-px h-8 bg-border" />
-
         <Button
           size="sm"
           variant="ghost"
@@ -495,7 +471,6 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
               const toY = toNode.y + 60
 
               const isActive =
-                isRunning &&
                 (fromNode.status === "running" || fromNode.status === "success") &&
                 toNode.status !== "idle"
 
@@ -582,6 +557,8 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
               isExpanded={expandedNode === node.id}
               isModified={node.isModified}
               onExpand={handleNodeExpand}
+              onGenerateCode={handleGenerateCode}
+              isGenerating={generatingNodeId === node.id}
             />
           ))}
         </div>
@@ -614,21 +591,20 @@ export function Canvas({ selectedNode, onSelectNode, isRunning, onToggleRun, onD
         onCreateFile={handleFileCreate}
       />
 
-      {/* Code Editor Overlay */}
+      {/* Code Editor Modal */}
       {expandedNode && (() => {
         const node = nodes.find(n => n.id === expandedNode)
         if (!node || node.type !== 'file') return null
         
         return (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-            <CodeEditor
-              content={node.content || ''}
-              fileType={node.fileType || 'text'}
-              onSave={(content) => handleFileSave(node.id, content)}
-              onClose={() => setExpandedNode(null)}
-              isModified={node.isModified}
-            />
-          </div>
+          <CodeEditor
+            content={node.content || ''}
+            fileType={node.fileType || 'text'}
+            fileName={node.filePath || node.label}
+            onSave={(content) => handleFileSave(node.id, content)}
+            onClose={() => setExpandedNode(null)}
+            isModified={node.isModified}
+          />
         )
       })()}
 
