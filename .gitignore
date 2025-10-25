@@ -82,7 +82,8 @@ dist
 
 # Gatsby files
 .cache/
-public
+# Only ignore a root-level Gatsby public build, not nested app assets
+/public/
 
 # Vuepress build output
 .vuepress/dist
