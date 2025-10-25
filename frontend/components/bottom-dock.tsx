@@ -1,15 +1,22 @@
 "use client"
 
+import { useState, useEffect, useRef } from "react"
 import { Terminal, Users, Clock, X, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useEffect, useRef } from "react"
+import TerminalUI, { ColorMode, TerminalOutput } from "react-terminal-ui"
 
 interface ConsoleMessage {
   timestamp: string
   level: 'INFO' | 'SUCCESS' | 'ERROR' | 'DEBUG'
   message: string
+}
+
+interface CommandHistory {
+  command: string
+  output?: string
+  error?: string
 }
 
 interface BottomDockProps {
@@ -19,6 +26,8 @@ interface BottomDockProps {
 export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
   const allMessages = consoleMessages
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([])
+  const workspace = "nody" // You can make this dynamic if needed
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -35,9 +44,57 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
       default: return 'text-primary'
     }
   }
+
+  const executeCommand = async (command: string) => {
+    if (!command.trim()) return
+
+    setCommandHistory(prev => [...prev, {
+      command,
+      output: 'Executing...'
+    }])
+
+    try {
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiBaseUrl}/terminal/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command })
+      })
+
+      const data = await response.json()
+
+      setCommandHistory(prev => {
+        const updated = [...prev]
+        const lastIndex = updated.length - 1
+        updated[lastIndex] = {
+          command,
+          output: data.stdout || data.output || '',
+          error: data.stderr || data.error || (data.success === false ? data.error : undefined)
+        }
+        return updated
+      })
+    } catch (error) {
+      setCommandHistory(prev => {
+        const updated = [...prev]
+        const lastIndex = updated.length - 1
+        let errorMessage = 'Command execution failed'
+
+        if (error instanceof Error) {
+          errorMessage = error.message
+        }
+
+        updated[lastIndex] = {
+          command,
+          error: errorMessage
+        }
+        return updated
+      })
+    }
+  }
+
   return (
-    <div className="h-64 shrink-0 neu-inset bg-background flex flex-col">
-      <Tabs defaultValue="console" className="flex-1 flex flex-col">
+    <div className="h-64 max-h-64 shrink-0 neu-inset bg-background flex flex-col border-t-2 overflow-hidden">
+      <Tabs defaultValue="console" className="flex-1 flex flex-col overflow-hidden min-h-0">
         <div className="h-12 flex items-center justify-between px-4 border-b border-border">
           <TabsList className="h-8 bg-transparent p-0 gap-1">
             <TabsTrigger value="console" className="data-[state=active]:neu-raised-sm data-[state=active]:shadow-lg data-[state=active]:shadow-primary/20">
@@ -82,13 +139,103 @@ export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
           </div>
         </TabsContent>
 
-        <TabsContent value="terminal" className="flex-1 overflow-hidden m-0">
-          <ScrollArea className="h-full custom-scrollbar">
-            <div className="p-4 font-mono text-xs text-foreground">
-              <div>$ npm run dev</div>
-              <div className="text-muted-foreground mt-2">Server running on http://localhost:3000</div>
-            </div>
-          </ScrollArea>
+        <TabsContent value="terminal" className="flex-1 overflow-hidden m-0 p-0 min-h-0" style={{ height: '100%', maxHeight: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <style jsx global>{`
+            [data-terminal-wrapper] {
+              height: 100% !important;
+              max-height: 100% !important;
+              overflow: hidden !important;
+              display: flex !important;
+              flex-direction: column !important;
+              min-height: 0 !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            [data-terminal-wrapper] > div {
+              flex: 1 1 auto !important;
+              overflow: auto !important;
+              max-height: 100% !important;
+              min-height: 0 !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            /* Remove all padding from terminal container and its children */
+            [data-terminal-wrapper] .terminal-container,
+            [data-terminal-wrapper] .terminal-container *,
+            [data-terminal-wrapper] > div > div {
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            [data-terminal-wrapper] .terminal-output {
+              font-size: 12px !important;
+              color: hsl(var(--foreground)) !important;
+              padding: 0 !important;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+            }
+            [data-terminal-wrapper] input {
+              font-size: 12px !important;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+              color: hsl(var(--foreground)) !important;
+              background: transparent !important;
+              padding: 0 !important;
+              border: none !important;
+              outline: none !important;
+            }
+            /* Force font size on all terminal text */
+            [data-terminal-wrapper] * {
+              font-size: 12px !important;
+            }
+            /* Match terminal background to console */
+            .terminal-container,
+            [data-terminal-wrapper] .terminal-container,
+            [data-terminal-wrapper] > div,
+            [data-terminal-wrapper] > div > div {
+              max-height: 100% !important;
+              overflow: hidden !important;
+              background: hsl(var(--background)) !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            /* Terminal text colors to match console */
+            [data-terminal-wrapper],
+            [data-terminal-wrapper] * {
+              color: hsl(var(--foreground)) !important;
+            }
+            /* Match console layout */
+            [data-terminal-wrapper] .terminal-output {
+              padding-left: 0 !important;
+              padding-right: 0 !important;
+              padding-top: 0 !important;
+              padding-bottom: 0 !important;
+            }
+            /* Hide terminal window control buttons (red, yellow, green) */
+            [data-terminal-wrapper] .terminal-window-controls,
+            [data-terminal-wrapper] button:first-child,
+            [data-terminal-wrapper] > div > div:first-child,
+            [data-terminal-wrapper] .terminal-header button {
+              display: none !important;
+            }
+          `}</style>
+          <div data-terminal-wrapper style={{ height: '100%', maxHeight: '100%' }}>
+            <TerminalUI
+              name=""
+              colorMode={ColorMode.Dark}
+              onInput={(input) => executeCommand(input)}
+              height="100%"
+            >
+              {commandHistory.length === 0 ? (
+                <TerminalOutput>Terminal ready. Type a command and press Enter...</TerminalOutput>
+              ) : (
+                commandHistory.map((item, idx) => (
+                  <div key={idx}>
+                    <TerminalOutput>$ {item.command}</TerminalOutput>
+                    {item.output && <TerminalOutput>{item.output}</TerminalOutput>}
+                    {item.error && <TerminalOutput><span className="text-red-500">{item.error}</span></TerminalOutput>}
+                  </div>
+                ))
+              )}
+            </TerminalUI>
+          </div>
         </TabsContent>
 
         <TabsContent value="timeline" className="flex-1 overflow-hidden m-0">

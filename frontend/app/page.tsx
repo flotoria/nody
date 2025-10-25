@@ -44,7 +44,7 @@ export default function NodeFlowPage() {
 
     // Poll every 500ms when running
     const interval = setInterval(pollOutput, 500)
-    
+
     // Initial poll
     pollOutput()
 
@@ -109,13 +109,15 @@ export default function NodeFlowPage() {
           </Button>
         </header>
 
-        <Canvas
-          selectedNode={selectedNode}
-          onSelectNode={setSelectedNode}
-          isRunning={isRunning}
-          onToggleRun={handleToggleRun}
-          onDataChange={handleDataChange}
-        />
+        <div className="flex-1 overflow-hidden">
+          <Canvas
+            selectedNode={selectedNode}
+            onSelectNode={setSelectedNode}
+            isRunning={isRunning}
+            onToggleRun={handleToggleRun}
+            onDataChange={handleDataChange}
+          />
+        </div>
 
         <BottomDock consoleMessages={consoleMessages} />
       </div>
