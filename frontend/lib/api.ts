@@ -54,6 +54,78 @@ export interface ChatResponse {
   }>
 }
 
+export type OnboardingRole = "user" | "assistant" | "system"
+
+export interface OnboardingChatMessage {
+  role: OnboardingRole
+  content: string
+}
+
+export interface ProjectFeature {
+  name: string
+  description: string
+  acceptance_criteria: string[]
+}
+
+export interface TechnicalStack {
+  frontend: string
+  backend: string
+  api: string
+  database: string
+  infrastructure: string
+  third_party_services: string[]
+}
+
+export interface ProjectSpec {
+  title: string
+  summary: string
+  goals: string[]
+  target_users: string[]
+  primary_features: ProjectFeature[]
+  technical_stack: TechnicalStack
+  integrations: string[]
+  non_functional_requirements: string[]
+  constraints: string[]
+  success_metrics: string[]
+  open_questions: string[]
+}
+
+export interface OnboardingChatResult {
+  message: string
+  status: "collecting" | "ready"
+  missing_information: string[]
+  project_spec?: ProjectSpec | null
+  spec_saved: boolean
+}
+
+export interface ProjectSpecDocument {
+  exists: boolean
+  project_spec?: ProjectSpec | null
+  metadata?: {
+    session_id?: string
+    generated_at?: string
+    model?: string
+  } | null
+}
+
+export interface PrepareProjectResult {
+  message: string
+  files_created: number
+  metadata_nodes: number
+  edges_created: number
+  files: Array<{
+    id: string
+    label: string
+    file_name: string
+  }>
+  edges: Array<{
+    from: string
+    to: string
+    type?: string
+    description?: string
+  }>
+}
+
 export class FileAPI {
   static async getFiles(): Promise<FileNode[]> {
     const response = await fetch(`${API_BASE_URL}/files`)
@@ -189,6 +261,47 @@ export class FileAPI {
     })
     if (!response.ok) {
       throw new Error('Failed to send chat message')
+    }
+    return response.json()
+  }
+}
+
+export class OnboardingAPI {
+  static async chat(sessionId: string, messages: OnboardingChatMessage[]): Promise<OnboardingChatResult> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        messages,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      throw new Error(`Failed to process onboarding chat: ${errorText}`)
+    }
+
+    return response.json()
+  }
+
+  static async getProjectSpec(): Promise<ProjectSpecDocument> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/spec`)
+    if (!response.ok) {
+      throw new Error('Failed to load project specification')
+    }
+    return response.json()
+  }
+
+  static async prepareProject(): Promise<PrepareProjectResult> {
+    const response = await fetch(`${API_BASE_URL}/onboarding/prepare-project`, {
+      method: 'POST',
+    })
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error')
+      throw new Error(`Failed to prepare project workspace: ${errorText}`)
     }
     return response.json()
   }
