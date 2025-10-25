@@ -109,15 +109,14 @@ export default function NodeFlowPage() {
           </Button>
         </header>
 
-        <div className="flex-1 overflow-hidden">
-          <Canvas
-            selectedNode={selectedNode}
-            onSelectNode={setSelectedNode}
-            isRunning={isRunning}
-            onToggleRun={handleToggleRun}
-            onDataChange={handleDataChange}
-          />
-        </div>
+        <Canvas
+          selectedNode={selectedNode}
+          onSelectNode={setSelectedNode}
+          isRunning={isRunning}
+          onToggleRun={handleToggleRun}
+          onDataChange={handleDataChange}
+        />
+
 
         <BottomDock consoleMessages={consoleMessages} />
       </div>
