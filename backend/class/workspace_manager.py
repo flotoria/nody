@@ -8,8 +8,8 @@ class WorkspaceManager:
     
     def __init__(self, git_dir: str = None):
         if git_dir is None:
-            # Default to parent directory's git/ folder (nody/git/)
-            git_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "git")
+            # Default to parent directory's git/ folder (nody/canvas/)
+            git_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "canvas")
         self.git_dir = os.path.abspath(git_dir)  # Make absolute path
         os.makedirs(self.git_dir, exist_ok=True)
         self.active_workspace: Optional[str] = None  # Start with no active workspace
@@ -24,14 +24,14 @@ class WorkspaceManager:
     def set_active_workspace(self, workspace_name: str) -> dict:
         """
         Set active workspace by name.
-        Workspace must exist in git/
+        Workspace must exist in canvas/
         """
         workspace_path = os.path.join(self.git_dir, workspace_name)
         
         if not os.path.exists(workspace_path):
             return {
                 "success": False,
-                "error": f"Workspace '{workspace_name}' not found in git/"
+                "error": f"Workspace '{workspace_name}' not found in canvas/"
             }
         
         self.active_workspace = workspace_path

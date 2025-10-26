@@ -14,9 +14,10 @@ interface Message {
 
 interface RightSidebarProps {
   onMetadataUpdate?: () => void
+  projectName?: string
 }
 
-export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
+export function RightSidebar({ onMetadataUpdate, projectName }: RightSidebarProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -53,7 +54,7 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
         "Updating metadata...",
         "Almost done..."
       ]
-      
+
       let statusIndex = 0
       const statusInterval = setInterval(() => {
         if (statusIndex < statusMessages.length) {
@@ -67,7 +68,7 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
         role: msg.role,
         content: msg.content
       }))
-      
+
       // Add the new user message
       apiMessages.push({
         role: "user",
@@ -76,19 +77,19 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
 
       // Send to backend
       const response = await FileAPI.chat(apiMessages)
-      
+
       clearInterval(statusInterval)
       setStatusMessage("")
-      
+
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: response.message,
         timestamp: new Date(),
       }
-      
+
       setMessages((prev) => [...prev, aiMessage])
-      
+
       // Handle generated_nodes if present
       if (response.generated_nodes && response.generated_nodes.length > 0) {
         console.log("Generated nodes:", response.generated_nodes)
@@ -130,9 +131,8 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
         {messages.map((message) => (
           <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}>
             <div
-              className={`w-8 h-8 rounded-full neu-raised flex items-center justify-center shrink-0 ${
-                message.role === "user" ? "bg-primary/10" : "bg-card"
-              }`}
+              className={`w-8 h-8 rounded-full neu-raised flex items-center justify-center shrink-0 ${message.role === "user" ? "bg-primary/10" : "bg-card"
+                }`}
             >
               {message.role === "user" ? (
                 <User className="w-4 h-4 text-primary" />
@@ -142,9 +142,8 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
             </div>
             <div className={`flex-1 ${message.role === "user" ? "text-right" : ""}`}>
               <div
-                className={`inline-block neu-raised rounded-xl p-3 ${
-                  message.role === "user" ? "bg-primary/5" : "bg-card"
-                }`}
+                className={`inline-block neu-raised rounded-xl p-3 ${message.role === "user" ? "bg-primary/5" : "bg-card"
+                  }`}
               >
                 <p className="text-sm text-foreground">{message.content}</p>
               </div>
@@ -154,7 +153,7 @@ export function RightSidebar({ onMetadataUpdate }: RightSidebarProps) {
             </div>
           </div>
         ))}
-        
+
         {/* Loading indicator */}
         {isLoading && statusMessage && (
           <div className="flex gap-3 animate-pulse">

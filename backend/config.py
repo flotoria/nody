@@ -11,7 +11,8 @@ load_dotenv()
 # Project paths
 BACKEND_ROOT = Path(__file__).parent
 CANVAS_ROOT = BACKEND_ROOT.parent / "canvas"
-CANVAS_DIR = CANVAS_ROOT / "nodes"
+CANVAS_DIR = CANVAS_ROOT / "nodes"  # Global nodes collection (legacy)
+PROJECTS_DIR = CANVAS_ROOT  # Projects are stored in canvas/<project_name>/
 PROJECT_SPEC_PATH = CANVAS_ROOT / "project-spec.json"
 EDGES_FILE = CANVAS_ROOT / "edges.json"
 METADATA_FILE = CANVAS_ROOT / "metadata.json"
