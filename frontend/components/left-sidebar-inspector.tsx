@@ -20,7 +20,7 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
   // Sync editingDescription with metadata when it changes (but not when editing)
   useEffect(() => {
     if (selectedNode && metadata[selectedNode] && !isEditingDescription) {
-      const newDescription = metadata[selectedNode].description
+      const newDescription = metadata[selectedNode].description || ''
       // Only update if the description has actually changed
       if (newDescription !== editingDescription) {
         setEditingDescription(newDescription)
@@ -31,7 +31,7 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
   const handleStartEdit = () => {
     const nodeMeta = metadata[selectedNode!]
     if (nodeMeta) {
-      setEditingDescription(nodeMeta.description)
+      setEditingDescription(nodeMeta.description || '')
       setIsEditingDescription(true)
     }
   }
@@ -124,15 +124,14 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
             <label className="text-xs text-muted-foreground">Status</label>
             <div className="neu-inset bg-background rounded px-3 py-2 mt-1 flex items-center gap-2">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  node?.status === "running"
+                className={`w-2 h-2 rounded-full ${node?.status === "running"
                     ? "bg-blue-500"
                     : node?.status === "success"
                       ? "bg-green-500"
                       : node?.status === "failed"
                         ? "bg-red-500"
                         : "bg-gray-500"
-                }`}
+                  }`}
               />
               <span className="text-sm text-foreground capitalize">{node?.status || "idle"}</span>
             </div>
@@ -153,7 +152,7 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
                 </Button>
               )}
             </div>
-            
+
             {isEditingDescription ? (
               <div className="space-y-2">
                 <Input
@@ -189,7 +188,7 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
                 </span>
               </div>
             )}
-            
+
           </div>
 
           {/* Position Fields */}
@@ -198,20 +197,20 @@ export function Inspector({ selectedNode, nodes, metadata, onUpdateDescription }
               <div>
                 <label className="text-xs text-muted-foreground">Position X</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                  <span className="text-sm font-mono text-foreground">{nodeMeta.x.toFixed(2)}</span>
+                  <span className="text-sm font-mono text-foreground">{nodeMeta.x?.toFixed(2) ?? '0.00'}</span>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Position Y</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
-                  <span className="text-sm font-mono text-foreground">{nodeMeta.y.toFixed(2)}</span>
+                  <span className="text-sm font-mono text-foreground">{nodeMeta.y?.toFixed(2) ?? '0.00'}</span>
                 </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground">Coordinates</label>
                 <div className="neu-inset bg-background rounded px-3 py-2 mt-1">
                   <span className="text-sm font-mono text-foreground">
-                    ({nodeMeta.x.toFixed(0)}, {nodeMeta.y.toFixed(0)})
+                    ({nodeMeta.x?.toFixed(0) ?? '0'}, {nodeMeta.y?.toFixed(0) ?? '0'})
                   </span>
                 </div>
               </div>

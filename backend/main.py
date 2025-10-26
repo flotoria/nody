@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR, BACKEND_ROOT
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR, PROJECTS_DIR, BACKEND_ROOT
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
@@ -561,7 +561,7 @@ def _determine_working_directory(file_path: Path) -> Path:
 
 @app.get("/folders", response_model=list[FolderNode])
 async def get_folders():
-    """Get all folder nodes"""
+    """Get all folder nodes (global - for backward compatibility)"""
     metadata = file_db.load_metadata()
     folders = []
     for node_id, node_data in metadata.items():
@@ -578,6 +578,46 @@ async def get_folders():
                 parentFolder=node_data.get("parentFolder")
             ))
     return folders
+
+
+@app.get("/projects/{project_name}/folders", response_model=list[FolderNode])
+async def get_project_folders(project_name: str):
+    """Get all folder nodes for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project-specific metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            return []
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        folders = []
+        for node_id, node_data in metadata.items():
+            if node_data.get("type") == "folder":
+                # Read folder metadata directly from project metadata
+                folders.append(FolderNode(
+                    id=node_data.get("id", node_id),
+                    name=node_data.get("name", f"Folder {node_id}"),
+                    x=node_data.get("x", 100),
+                    y=node_data.get("y", 100),
+                    width=node_data.get("width", 600),
+                    height=node_data.get("height", 400),
+                    isExpanded=node_data.get("isExpanded", True),
+                    containedFiles=node_data.get("containedFiles", []),
+                    parentFolder=node_data.get("parentFolder")
+                ))
+        return folders
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting project folders: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting project folders: {str(e)}")
 
 
 @app.post("/folders", response_model=FolderNode)
@@ -616,6 +656,142 @@ async def create_folder(folder_create: FolderCreate):
         return FolderNode(**folder_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating folder: {str(e)}")
+
+
+@app.post("/projects/{project_name}/folders", response_model=FolderNode)
+async def create_project_folder(project_name: str, folder_create: FolderCreate):
+    """Create a new folder node for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project-specific metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            metadata = {}
+        else:
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        
+        # Generate unique folder ID
+        folder_id = f"folder_{len([k for k in metadata.keys() if k.startswith('folder_')]) + 1}"
+        
+        # Create actual directory in project's nodes folder
+        folder_path = nodes_dir / folder_create.name
+        folder_path.mkdir(parents=True, exist_ok=True)
+        print(f"Created project directory: {folder_path}")
+        
+        # Create folder metadata and store in project metadata
+        folder_metadata = {
+            "id": folder_id,
+            "type": "folder",
+            "name": folder_create.name,
+            "x": folder_create.x,
+            "y": folder_create.y,
+            "width": folder_create.width,
+            "height": folder_create.height,
+            "isExpanded": True,
+            "containedFiles": [],
+            "parentFolder": folder_create.parentFolder,
+            "description": f"Folder: {folder_create.name}",
+            "folderPath": folder_create.name,
+            "createdAt": datetime.now().isoformat()
+        }
+        
+        # Store folder metadata in project metadata
+        metadata[folder_id] = folder_metadata
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return FolderNode(
+            id=folder_id,
+            name=folder_create.name,
+            x=folder_create.x,
+            y=folder_create.y,
+            width=folder_create.width,
+            height=folder_create.height,
+            isExpanded=True,
+            containedFiles=[],
+            parentFolder=folder_create.parentFolder
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating project folder: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating project folder: {str(e)}")
+
+
+@app.put("/projects/{project_name}/folders/{folder_id}")
+async def update_project_folder(project_name: str, folder_id: str, folder_update: FolderUpdate):
+    """Update folder properties for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project-specific metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Project metadata not found")
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        if folder_id not in metadata or metadata[folder_id].get("type") != "folder":
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Update folder properties in project metadata
+        if folder_update.name is not None:
+            metadata[folder_id]["name"] = folder_update.name
+        if folder_update.x is not None:
+            metadata[folder_id]["x"] = folder_update.x
+        if folder_update.y is not None:
+            metadata[folder_id]["y"] = folder_update.y
+        if folder_update.width is not None:
+            metadata[folder_id]["width"] = folder_update.width
+        if folder_update.height is not None:
+            metadata[folder_id]["height"] = folder_update.height
+        if folder_update.isExpanded is not None:
+            metadata[folder_id]["isExpanded"] = folder_update.isExpanded
+        if folder_update.containedFiles is not None:
+            metadata[folder_id]["containedFiles"] = folder_update.containedFiles
+        
+        # Save updated project metadata
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return {"message": "Project folder updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating project folder: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating project folder: {str(e)}")
+
+
+@app.get("/projects/{project_name}/output")
+async def get_project_output(project_name: str):
+    """Get output messages for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project-specific output
+        output_file = project_dir / "output.json"
+        if not output_file.exists():
+            return {"messages": []}
+        
+        with open(output_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return {"messages": data.get("messages", [])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting project output: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting project output: {str(e)}")
 
 
 @app.put("/folders/{folder_id}")
@@ -1116,6 +1292,418 @@ async def launch_full_application():
         RUN_APP_THREAD.start()
 
     return {"success": True, "message": "Application launch script started."}
+
+
+# ==================== PROJECT OPERATIONS ====================
+
+@app.get("/projects")
+async def list_projects():
+    """List all available projects in canvas directory"""
+    try:
+        projects = []
+        if PROJECTS_DIR.exists():
+            for item in PROJECTS_DIR.iterdir():
+                if item.is_dir() and not item.name.startswith('.'):
+                    # Count files in project's nodes directory
+                    nodes_dir = item / "nodes"
+                    file_count = 0
+                    if nodes_dir.exists():
+                        for root, dirs, files in os.walk(nodes_dir):
+                            file_count += len([f for f in files if not f.startswith('.')])
+                    
+                    # Get last modified time
+                    last_modified = item.stat().st_mtime
+                    
+                    projects.append({
+                        "name": item.name,
+                        "path": str(item),
+                        "lastModified": datetime.fromtimestamp(last_modified).isoformat(),
+                        "fileCount": file_count
+                    })
+        
+        # Sort by last modified (newest first)
+        projects.sort(key=lambda x: x["lastModified"], reverse=True)
+        
+        return {"projects": projects}
+    except Exception as e:
+        print(f"Error listing projects: {e}")
+        return {"projects": []}
+
+
+@app.get("/projects/{project_name}/metadata/raw")
+async def get_project_metadata_raw(project_name: str):
+    """Get raw metadata.json content for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        metadata_file = project_dir / "metadata.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Ensure the file exists
+        if not metadata_file.exists():
+            # Create empty metadata file
+            metadata_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                f.write('{}')
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Add timestamp for debugging
+        print(f"Project metadata file read at {datetime.now()}, size: {len(content)} chars")
+        
+        return {"content": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error reading project metadata file: {e}")
+        return {"content": "{}", "error": str(e)}
+
+
+@app.get("/projects/{project_name}/metadata")
+async def get_project_metadata(project_name: str):
+    """Get all node metadata for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        metadata_file = project_dir / "metadata.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        if not metadata_file.exists():
+            return {}
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error loading project metadata: {e}")
+        return {}
+
+
+@app.put("/projects/{project_name}/metadata")
+async def update_project_metadata(project_name: str, metadata: dict):
+    """Update all node metadata for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        metadata_file = project_dir / "metadata.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        print(f"Project metadata update called at {datetime.now()}, project: {project_name}, nodes: {len(metadata)}")
+        
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+        
+        print(f"Project metadata saved successfully, file size: {metadata_file.stat().st_size if metadata_file.exists() else 0} bytes")
+        return {"message": "Project metadata updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating project metadata: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating project metadata: {str(e)}")
+
+
+@app.get("/projects/{project_name}/files")
+async def get_project_files(project_name: str):
+    """Get all node files for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project-specific metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            return []
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        files = []
+        for node_id, node_data in metadata.items():
+            if node_data.get("type") == "file":
+                file_name = node_data.get("fileName", f"file_{node_id}.py")
+                file_path = nodes_dir / file_name
+                
+                # Read file content if it exists
+                content = ""
+                if file_path.exists():
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except Exception as e:
+                        print(f"Error reading file {file_path}: {e}")
+                        content = "# Error reading file\n"
+                
+                files.append({
+                    "id": node_id,
+                    "filePath": file_name,
+                    "fileType": node_data.get("fileType", "python"),
+                    "content": content,
+                    "description": node_data.get("description", ""),
+                    "x": node_data.get("x", 100),
+                    "y": node_data.get("y", 100),
+                    "parentFolder": node_data.get("parentFolder")
+                })
+        
+        return files
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error loading project files: {e}")
+        return []
+
+
+@app.get("/projects/{project_name}/edges")
+async def get_project_edges(project_name: str):
+    """Get all edges for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        edges_file = project_dir / "edges.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        if edges_file.exists():
+            with open(edges_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get("edges", [])
+        return []
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error loading project edges: {e}")
+        return []
+
+
+@app.post("/projects/{project_name}/edges")
+async def create_project_edge(project_name: str, edge_data: dict):
+    """Create a new edge or clear all edges for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        edges_file = project_dir / "edges.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # If edge_data contains "edges" key, it's a clear operation
+        if "edges" in edge_data:
+            edges_data = {"edges": edge_data["edges"]}
+            with open(edges_file, 'w', encoding='utf-8') as f:
+                json.dump(edges_data, f, indent=2)
+            return {"message": "Project edges updated successfully"}
+        
+        # Otherwise, create a new edge
+        # Load existing edges
+        edges = []
+        if edges_file.exists():
+            with open(edges_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                edges = data.get("edges", [])
+        
+        # Check for duplicate edges
+        for existing_edge in edges:
+            if (existing_edge.get("from") == edge_data.get("from") and 
+                existing_edge.get("to") == edge_data.get("to")):
+                raise HTTPException(status_code=400, detail="Edge already exists")
+        
+        # Add new edge
+        edges.append(edge_data)
+        
+        # Save updated edges
+        edges_data = {"edges": edges}
+        with open(edges_file, 'w', encoding='utf-8') as f:
+            json.dump(edges_data, f, indent=2)
+        
+        return {"message": "Project edge created successfully", "edge": edge_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating project edge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating project edge: {str(e)}")
+
+
+@app.delete("/projects/{project_name}/edges")
+async def delete_project_edge(project_name: str, from_node: str, to_node: str, edge_type: str):
+    """Delete a specific edge by from/to/type combination for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        edges_file = project_dir / "edges.json"
+        
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load existing edges
+        edges = []
+        if edges_file.exists():
+            with open(edges_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                edges = data.get("edges", [])
+        
+        # Find and remove the edge
+        original_count = len(edges)
+        edges = [edge for edge in edges if not (
+            edge.get("from") == from_node and 
+            edge.get("to") == to_node and 
+            edge.get("type") == edge_type
+        )]
+        
+        if len(edges) == original_count:
+            raise HTTPException(status_code=404, detail="Edge not found")
+        
+        # Save updated edges
+        edges_data = {"edges": edges}
+        with open(edges_file, 'w', encoding='utf-8') as f:
+            json.dump(edges_data, f, indent=2)
+        
+        return {"message": "Project edge deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting project edge: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting project edge: {str(e)}")
+
+
+@app.put("/projects/{project_name}/files/{file_id}/content")
+async def update_project_file_content(project_name: str, file_id: str, file_content: FileContent):
+    """Update file content for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Project metadata not found")
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        if file_id not in metadata:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Update file content
+        file_name = metadata[file_id].get("fileName", f"file_{file_id}.py")
+        file_path = nodes_dir / file_name
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(file_content.content)
+        
+        return {"message": "Project file content updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating project file content: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating project file content: {str(e)}")
+
+
+@app.put("/projects/{project_name}/files/{file_id}/description")
+async def update_project_file_description(project_name: str, file_id: str, description_update: DescriptionUpdate):
+    """Update file description for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Load project metadata
+        metadata_file = project_dir / "metadata.json"
+        if not metadata_file.exists():
+            raise HTTPException(status_code=404, detail="Project metadata not found")
+        
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        if file_id not in metadata:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Update description
+        metadata[file_id]["description"] = description_update.description
+        
+        # Save updated metadata
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
+        
+        return {"message": "Project file description updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error updating project file description: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating project file description: {str(e)}")
+
+
+@app.post("/projects/{project_name}/run")
+async def run_project(project_name: str):
+    """Run the project by generating code for all files based on metadata for a specific project"""
+    try:
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        if not project_dir.exists():
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        # Set the active workspace to this project
+        workspace_manager.set_active_workspace(project_name)
+        
+        result = await code_generation_service.run_project()
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error running project: {str(e)}")
+
+
+@app.post("/projects/{project_name}/create")
+async def create_project(project_name: str, project_data: dict):
+    """Create a new empty project directory with basic files"""
+    try:
+        print(f"Backend: Creating project with name: '{project_name}'")
+        print(f"Backend: Project data: {project_data}")
+        
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        
+        # Check if project already exists
+        if project_dir.exists():
+            print(f"Backend: Project '{project_name}' already exists")
+            raise HTTPException(status_code=400, detail="Project already exists")
+        
+        # Create project directory and nodes subdirectory
+        project_dir.mkdir(parents=True, exist_ok=True)
+        nodes_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create empty metadata.json in project directory
+        metadata_file = project_dir / "metadata.json"
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump({}, f, indent=2)
+        
+        # Create empty edges.json in project directory
+        edges_file = project_dir / "edges.json"
+        with open(edges_file, 'w', encoding='utf-8') as f:
+            json.dump({"edges": []}, f, indent=2)
+        
+        return {
+            "message": f"Project '{project_name}' created successfully",
+            "project_name": project_name,
+            "path": str(project_dir)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error creating project: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating project: {str(e)}")
 
 
 # ==================== WORKSPACE OPERATIONS ====================
