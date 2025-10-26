@@ -106,6 +106,7 @@ type FileNodeData = {
   generating: boolean
   running: boolean
   description?: string
+  category?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
   onRun?: (id: string) => void
@@ -140,6 +141,31 @@ type EdgeRecord = {
   description?: string
 }
 
+type BoilerplateTemplate = {
+  defaultFileName: string
+  fileType: string
+  description: string
+  content: string
+}
+
+type SidebarDragPayload = {
+  label?: string
+  type?: string
+  isSpecial?: boolean
+  description?: string
+  template?: BoilerplateTemplate
+  categoryLabel?: string
+}
+
+type PendingNodeConfig = {
+  type: string
+  position: { x: number; y: number }
+  label?: string
+  initialValues?: Partial<NodeConfiguration> & { fileType?: string; fileName?: string }
+  template?: BoilerplateTemplate
+  categoryLabel?: string
+}
+
 const isFileNodeData = (data: CanvasNodeData): data is FileNodeData => data.kind === "file"
 
 const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps<FileNodeData>) => {
@@ -171,6 +197,12 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
             <Sparkles className="h-4 w-4 animate-spin text-primary" />
           ) : null}
         </div>
+
+        {data.category && (
+          <span className="inline-flex w-fit items-center rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            {data.category}
+          </span>
+        )}
 
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>
@@ -346,11 +378,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   const [showNodeConfigModal, setShowNodeConfigModal] = useState(false)
   const [pendingFilePosition, setPendingFilePosition] = useState<{ x: number; y: number } | null>(null)
   const [pendingFolderPosition, setPendingFolderPosition] = useState<{ x: number; y: number } | null>(null)
-  const [pendingNodeConfig, setPendingNodeConfig] = useState<{
-    type: string
-    position: { x: number; y: number }
-    label?: string
-  } | null>(null)
+  const [pendingNodeConfig, setPendingNodeConfig] = useState<PendingNodeConfig | null>(null)
 
   // Custom onNodesChange handler to detect resize changes
   const onNodesChange = useCallback((changes: NodeChange[]) => {
@@ -866,6 +894,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           generating: generatingNodeId === record.id,
           running: runningNodeIds.has(record.id),
           description: meta?.description,
+          category: record.category || meta?.category,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
           onRun: handleRunFile,
@@ -1275,23 +1304,34 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     async (config: NodeConfiguration) => {
       if (!pendingNodeConfig) return
 
-      const { type, position, label: initialLabel } = pendingNodeConfig
+      const { type, position, label: initialLabel, template, categoryLabel } = pendingNodeConfig
       const genericId = `generic-${Date.now()}`
       const finalLabel = config.label || initialLabel || `${type} node`
+      const categoryRaw = config.category || categoryLabel || (template ? "File" : "Custom")
+      const resolvedCategory = categoryRaw.toLowerCase() === "file" ? "File" : categoryRaw
 
-      if (type === "file" && config.fileName) {
+      if (type === "file") {
         // Create a file node
         try {
           const fileX = position.x - NODE_WIDTH / 2
           const fileY = position.y - NODE_HEIGHT / 4
-          
+          const candidateName = (config.fileName || "").trim() || template?.defaultFileName || ""
+          if (!candidateName) {
+            toast.error("Please provide a file name")
+            return
+          }
+          const filePath = candidateName.replace(/^\/+/, "")
+          const fileType = config.fileType || template?.fileType || "python"
+          const description = config.description || template?.description || ""
+
           const result = await FileAPI.createFile({
-            filePath: config.fileName,
-            fileType: config.fileType || "python",
-            content: "",
-            description: config.description,
+            filePath,
+            fileType,
+            content: template?.content ?? "",
+            description,
+            category: resolvedCategory,
           })
-          
+
           if (!result.success || !result.data) {
             throw new Error(result.error || "Failed to create file")
           }
@@ -1347,7 +1387,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           data: {
             kind: "generic",
             label: finalLabel,
-            category: config.category,
+            category: resolvedCategory,
           },
           draggable: true,
           selectable: true,
@@ -1363,8 +1403,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
       // Reset pending config
       setPendingNodeConfig(null)
+      setShowNodeConfigModal(false)
     },
-    [pendingNodeConfig, onSelectNode],
+    [pendingNodeConfig, onSelectNode, setShowNodeConfigModal],
   )
 
   // Listen for custom events to show modals
@@ -1399,7 +1440,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       event.preventDefault()
 
       const payloadRaw = event.dataTransfer.getData("application/json")
-      let payload: { type?: string; isSpecial?: boolean; label?: string } | null = null
+      let payload: SidebarDragPayload | null = null
       if (payloadRaw) {
         try {
           payload = JSON.parse(payloadRaw)
@@ -1438,12 +1479,23 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
       // For all other node types, show the configuration modal
       setPendingNodeConfig({
-        type: payload.type || "custom",
+        type: payload.template ? "file" : payload.type || "custom",
         position: {
           x: position.x,
           y: position.y,
         },
         label: payload.label,
+        template: payload.template ?? undefined,
+        categoryLabel: payload.categoryLabel,
+        initialValues: payload.template
+          ? {
+              label: payload.label,
+              description: payload.template.description,
+              fileName: payload.template.defaultFileName,
+              fileType: payload.template.fileType,
+              category: payload.categoryLabel || "File",
+            }
+          : undefined,
       })
       setShowNodeConfigModal(true)
     },
@@ -1481,7 +1533,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             maxZoom={2.5}
             nodeTypes={nodeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
-            className="bg-background"
+            className="bg-background canvas-flow"
             connectionMode={ConnectionMode.Loose}
             connectOnClick
             proOptions={{ hideAttribution: true }}
@@ -1567,6 +1619,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         onConfigure={handleNodeConfigure}
         nodeType={pendingNodeConfig?.type || "custom"}
         initialPosition={pendingNodeConfig?.position}
+        initialValues={pendingNodeConfig?.initialValues}
       />
     </div>
   )

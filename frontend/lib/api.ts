@@ -14,6 +14,7 @@ export interface FileNode {
   isExpanded?: boolean
   isModified?: boolean
   parentFolder?: string
+  category?: string
 }
 
 export interface FolderNode {
@@ -38,6 +39,7 @@ export interface FileCreate {
   fileType: string
   content?: string
   description?: string
+  category?: string
 }
 
 export interface NodeMetadata {

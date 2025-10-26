@@ -5,10 +5,9 @@ import { LeftSidebar } from "@/components/left-sidebar"
 import { Canvas } from "@/components/canvas"
 import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
-import { EndpointGenerationModal } from "@/components/endpoint-generation-modal"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Home, Sparkles, Play } from "lucide-react"
+import { Home, Sparkles } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
@@ -25,9 +24,6 @@ export default function NodeFlowPage() {
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
-  const [isLaunchingApp, setIsLaunchingApp] = useState(false)
-  const [showEndpointModal, setShowEndpointModal] = useState(false)
-  const [endpointMethod, setEndpointMethod] = useState<"GET" | "POST">("GET")
 
   // Poll for real-time output messages and metadata updates
   useEffect(() => {
@@ -101,22 +97,6 @@ export default function NodeFlowPage() {
     }
   }
 
-  const handleStartApp = async () => {
-    if (isLaunchingApp) return
-
-    setIsLaunchingApp(true)
-    try {
-      const result = await FileAPI.startApplication()
-      console.log('Application launch triggered:', result)
-      window.alert(result.message || 'Application launch script started.')
-    } catch (error) {
-      console.error('Failed to start application:', error)
-      window.alert('Failed to start the application. Check the output panel for details.')
-    } finally {
-      setIsLaunchingApp(false)
-    }
-  }
-
   const handleMetadataUpdate = async () => {
     try {
       const updatedMetadata = await FileAPI.getMetadata()
@@ -128,12 +108,6 @@ export default function NodeFlowPage() {
     }
   }
 
-  const handleGenerateEndpoint = (method: "GET" | "POST") => {
-    setEndpointMethod(method)
-    setShowEndpointModal(true)
-  }
-
-
   return (
     <div className="h-screen flex overflow-hidden bg-background">
       <PanelGroup direction="horizontal" className="flex-1">
@@ -144,7 +118,6 @@ export default function NodeFlowPage() {
             nodes={nodes} 
             metadata={metadata} 
             onUpdateDescription={handleUpdateDescription}
-            onGenerateEndpoint={handleGenerateEndpoint}
           />
         </Panel>
 
@@ -157,7 +130,7 @@ export default function NodeFlowPage() {
             <Panel defaultSize={8} minSize={6} maxSize={12} className="min-h-0">
               <header className="h-full neu-inset-sm bg-background px-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <h1 className="font-semibold text-foreground text-soft-shadow">NodeFlow Project</h1>
+                  <h1 className="font-semibold text-foreground text-soft-shadow">Nody</h1>
                   <span className="text-sm text-muted-foreground">Visual Development Environment</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -176,24 +149,6 @@ export default function NodeFlowPage() {
                       <>
                         <Sparkles className="w-4 h-4 mr-2" />
                         Generate All
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={handleStartApp}
-                    disabled={isLaunchingApp}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
-                    size="sm"
-                  >
-                    {isLaunchingApp ? (
-                      <>
-                        <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Starting...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 mr-2" />
-                        Run App
                       </>
                     )}
                   </Button>
@@ -235,12 +190,6 @@ export default function NodeFlowPage() {
         </Panel>
       </PanelGroup>
       
-      <EndpointGenerationModal 
-        isOpen={showEndpointModal} 
-        onClose={() => setShowEndpointModal(false)} 
-        method={endpointMethod}
-      />
     </div>
   )
 }
-

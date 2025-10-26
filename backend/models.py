@@ -18,6 +18,7 @@ class FileNode(BaseModel):
     isExpanded: bool = False
     isModified: bool = False
     parentFolder: Optional[str] = None  # ID of containing folder
+    category: Optional[str] = None
 
 
 class FolderNode(BaseModel):
@@ -42,6 +43,7 @@ class FileCreate(BaseModel):
     fileType: str
     content: str = ""
     description: str = ""
+    category: Optional[str] = None
 
 
 class NodeMetadata(BaseModel):

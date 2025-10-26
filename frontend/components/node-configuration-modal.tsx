@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,6 +22,7 @@ interface NodeConfigurationModalProps {
   onConfigure: (config: NodeConfiguration) => void
   nodeType: string
   initialPosition?: { x: number; y: number }
+  initialValues?: Partial<NodeConfiguration> & { fileType?: string; fileName?: string }
 }
 
 export interface NodeConfiguration {
@@ -32,13 +34,17 @@ export interface NodeConfiguration {
 }
 
 const NODE_TYPES = [
-  { value: "file", label: "File Node" },
-  { value: "folder", label: "Folder Node" },
-  { value: "api", label: "API Node" },
-  { value: "database", label: "Database Node" },
-  { value: "service", label: "Service Node" },
-  { value: "component", label: "Component Node" },
-  { value: "custom", label: "Custom Node" },
+  { value: "AI / ML Boilerplates", label: "AI / ML Boilerplates" },
+  { value: "Web & API", label: "Web & API" },
+  { value: "Backend Logic", label: "Backend Logic" },
+  { value: "Database & Data Flow", label: "Database & Data Flow" },
+  { value: "DevOps & Infra", label: "DevOps & Infra" },
+  { value: "Frontend / UI", label: "Frontend / UI" },
+  { value: "Security & Auth", label: "Security & Auth" },
+  { value: "Utility / Common", label: "Utility / Common" },
+  { value: "file", label: "File" },
+  { value: "folder", label: "Folder" },
+  { value: "custom", label: "Custom" },
 ]
 
 const FILE_TYPES = [
@@ -58,43 +64,54 @@ export function NodeConfigurationModal({
   onConfigure,
   nodeType,
   initialPosition,
+  initialValues,
 }: NodeConfigurationModalProps) {
   const [label, setLabel] = useState("")
   const [description, setDescription] = useState("")
-  const [category, setCategory] = useState(nodeType)
   const [fileType, setFileType] = useState("python")
   const [fileName, setFileName] = useState("")
+
+  const applyInitialValues = useCallback(() => {
+    setLabel(initialValues?.label ?? "")
+    setDescription(initialValues?.description ?? "")
+    setFileType(initialValues?.fileType ?? "python")
+    setFileName(initialValues?.fileName ?? "")
+  }, [initialValues, nodeType])
+
+  useEffect(() => {
+    if (isOpen) {
+      applyInitialValues()
+    }
+  }, [isOpen, applyInitialValues])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
+    const resolvedFileName = nodeType === "file"
+      ? (fileName.trim() || initialValues?.fileName || "")
+      : undefined
+
+    if (nodeType === "file" && !resolvedFileName) {
+      toast.error("Please provide a file name")
+      return
+    }
+
     const config: NodeConfiguration = {
       label: label.trim() || `${nodeType} node`,
       description: description.trim(),
-      category: category.trim() || nodeType,
+      category: nodeType, // Use the nodeType as the category
       fileType: nodeType === "file" ? fileType : undefined,
-      fileName: nodeType === "file" ? fileName.trim() : undefined,
+      fileName: resolvedFileName,
     }
 
     onConfigure(config)
     onClose()
-    
-    // Reset form
-    setLabel("")
-    setDescription("")
-    setCategory(nodeType)
-    setFileType("python")
-    setFileName("")
+    applyInitialValues()
   }
 
   const handleClose = () => {
     onClose()
-    // Reset form
-    setLabel("")
-    setDescription("")
-    setCategory(nodeType)
-    setFileType("python")
-    setFileName("")
+    applyInitialValues()
   }
 
   return (
@@ -129,22 +146,6 @@ export function NodeConfigurationModal({
             />
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="category">Category</Label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select category" />
-              </SelectTrigger>
-              <SelectContent>
-                {NODE_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {nodeType === "file" && (
             <>
               <div className="space-y-2">

@@ -66,6 +66,7 @@ class FileDatabase:
                 content = placeholder
 
         file_type = infer_file_type_from_name(file_path.name)
+        category = node_meta.get("category")
         existing = self.files_db.get(node_id)
 
         if existing:
@@ -76,6 +77,7 @@ class FileDatabase:
             existing.x = node_meta.get("x", existing.x)
             existing.y = node_meta.get("y", existing.y)
             existing.parentFolder = node_meta.get("parentFolder")
+            existing.category = category or existing.category
         else:
             self.files_db[node_id] = FileNode(
                 id=node_id,
@@ -90,6 +92,7 @@ class FileDatabase:
                 isExpanded=False,
                 isModified=False,
                 parentFolder=node_meta.get("parentFolder"),
+                category=category,
             )
             print(f"Loaded metadata node into memory: {node_id} -> {file_path}")
 
@@ -125,7 +128,7 @@ class FileDatabase:
         except IOError as e:
             print(f"Error saving metadata: {e}")
     
-    def update_node_metadata(self, node_id: str, node_type: str, description: str, x: float, y: float):
+    def update_node_metadata(self, node_id: str, node_type: str, description: str, x: float, y: float, category: Optional[str] = None):
         """Update metadata for a specific node."""
         metadata = self.load_metadata()
         # Preserve existing fields like fileName
@@ -136,6 +139,7 @@ class FileDatabase:
             "description": description,
             "x": x,
             "y": y,
+            **({"category": category} if category is not None else {}),
             **{k: v for k, v in existing_data.items() if k not in ["id", "type", "description", "x", "y"]}
         }
         self.save_metadata(metadata)
@@ -164,7 +168,7 @@ class FileDatabase:
                 raise ValueError(f"File with name '{file_create_data['filePath']}' already exists")
         
         file_id = str(len(self.files_db) + 1)
-        
+
         new_file = FileNode(
             id=file_id,
             label=os.path.basename(file_create_data["filePath"]),
@@ -172,9 +176,10 @@ class FileDatabase:
             y=100,
             filePath=file_create_data["filePath"],
             fileType=file_create_data["fileType"],
-            content=file_create_data.get("content", "")
+            content=file_create_data.get("content", ""),
+            category=file_create_data.get("category"),
         )
-        
+
         self.files_db[file_id] = new_file
         
         # Create actual node file on filesystem
@@ -184,14 +189,17 @@ class FileDatabase:
         
         # Update metadata with file name
         final_description = file_create_data.get("description", f"File: {file_create_data['filePath']} ({file_create_data['fileType']})")
-        self.update_node_metadata(file_id, "file", final_description, new_file.x, new_file.y)
-        
+        category_value = file_create_data.get("category")
+        self.update_node_metadata(file_id, "file", final_description, new_file.x, new_file.y, category=category_value)
+
         # Also store the file name in metadata for easy access
         metadata = self.load_metadata()
         if file_id in metadata:
             metadata[file_id]["fileName"] = file_create_data["filePath"]
+            if category_value is not None:
+                metadata[file_id]["category"] = category_value
             self.save_metadata(metadata)
-        
+
         return new_file
     
     def update_file_content(self, file_id: str, content: str):
@@ -219,7 +227,8 @@ class FileDatabase:
         # Preserve existing description instead of overriding it
         existing_metadata = self.load_metadata()
         existing_description = existing_metadata.get(file_id, {}).get("description", f"File: {node.filePath} ({node.fileType})")
-        self.update_node_metadata(file_id, "file", existing_description, x, y)
+        existing_category = existing_metadata.get(file_id, {}).get("category")
+        self.update_node_metadata(file_id, "file", existing_description, x, y, category=existing_category)
     
     def update_file_description(self, file_id: str, description: str):
         """Update file node description."""
@@ -228,7 +237,9 @@ class FileDatabase:
         
         # Update metadata
         node = self.files_db[file_id]
-        self.update_node_metadata(file_id, "file", description, node.x, node.y)
+        metadata = self.load_metadata()
+        existing_category = metadata.get(file_id, {}).get("category")
+        self.update_node_metadata(file_id, "file", description, node.x, node.y, category=existing_category)
     
     def delete_file(self, file_id: str):
         """Delete a file node."""

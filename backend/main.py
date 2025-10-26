@@ -162,7 +162,8 @@ async def create_file(file_create: FileCreate):
             "filePath": file_create.filePath,
             "fileType": file_create.fileType,
             "content": file_create.content,
-            "description": file_create.description
+            "description": file_create.description,
+            "category": file_create.category,
         }
         new_file = file_db.create_file(file_data)
         return new_file
