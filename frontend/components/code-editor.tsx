@@ -121,7 +121,17 @@ export function CodeEditor({ content, fileType, fileName, onSave, onClose, isMod
         horizontalHasArrows: false,
         verticalScrollbarSize: 12,
         horizontalScrollbarSize: 12
-      }
+      },
+      // Ensure keyboard input works properly
+      acceptSuggestionOnEnter: 'on',
+      acceptSuggestionOnCommitCharacter: true,
+      accessibilitySupport: 'auto',
+      // Disable any potential input blocking
+      readOnly: false,
+      // Ensure all keys work
+      multiCursorModifier: 'ctrlCmd',
+      // Make sure spaces are handled correctly
+      renderWhitespace: 'selection'
     })
 
     // Keyboard shortcuts are handled by the component's onKeyDown
@@ -206,7 +216,6 @@ export function CodeEditor({ content, fileType, fileName, onSave, onClose, isMod
           height: isFullscreen ? '100%' : editorDimensions.height,
         }}
         onKeyDown={handleKeyDown}
-        tabIndex={-1}
         role="dialog"
         aria-label="Code Editor"
         aria-modal="true"
