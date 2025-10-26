@@ -877,6 +877,18 @@ async def execute_terminal_command_stream(cmd: TerminalCommand):
     
     async def stream_output():
         try:
+            # Force workspace to be canvas/nodes directory
+            canvas_nodes_dir = os.path.join(os.path.dirname(__file__), "..", "canvas", "nodes")
+            if os.path.exists(canvas_nodes_dir):
+                workspace_manager.active_workspace = os.path.abspath(canvas_nodes_dir)
+                print(f"DEBUG: Forced workspace to canvas/nodes: {workspace_manager.active_workspace}")
+            else:
+                # Fallback to canvas directory
+                canvas_dir = os.path.join(os.path.dirname(__file__), "..", "canvas")
+                if os.path.exists(canvas_dir):
+                    workspace_manager.active_workspace = os.path.abspath(canvas_dir)
+                    print(f"DEBUG: Forced workspace to canvas: {workspace_manager.active_workspace}")
+            
             workspace_info = workspace_manager.ensure_active_workspace(cmd.command)
             if not workspace_info["success"]:
                 yield f"data: {json.dumps({'error': workspace_info['error']})}\n\n"
