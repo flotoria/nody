@@ -1038,7 +1038,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           onStop: handleStopFile,
           onDelete: handleFileDelete,
         },
-        style: { width: NODE_WIDTH, zIndex: 2 },
+        style: { width: NODE_WIDTH, zIndex: 10 },
         draggable: true,
         selectable: true,
         connectable: true,
@@ -1529,7 +1529,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           draggable: true,
           selectable: true,
           connectable: true,
-          style: { zIndex: 2 },
+          style: { zIndex: 10 },
         }
 
         setCustomGenericNodes((prev) => [...prev, genericNode])
