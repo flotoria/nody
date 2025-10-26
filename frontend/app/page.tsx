@@ -7,7 +7,7 @@ import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Home, Sparkles } from "lucide-react"
+import { Home, Sparkles, Play, Square } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
@@ -24,6 +24,7 @@ export default function NodeFlowPage() {
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isRunningTemplate, setIsRunningTemplate] = useState(false)
   
   // Handler for adding terminal output (for file execution)
   const handleAddTerminalOutput = (output: string) => {
@@ -103,6 +104,27 @@ export default function NodeFlowPage() {
     }
   }
 
+  const handleRunTemplate = async () => {
+    if (isRunningTemplate || isGenerating) return
+    
+    setIsRunningTemplate(true)
+    try {
+      const result = await FileAPI.runTemplate()
+      if (!result.success) {
+        console.error('Failed to run template:', result.error)
+      }
+      // Don't set isRunningTemplate to false here - keep it running until user clicks Stop
+    } catch (error) {
+      console.error('Failed to run template:', error)
+      setIsRunningTemplate(false) // Only reset on error
+    }
+  }
+
+  const handleStopTemplate = () => {
+    // Clear the running state to show Run button again
+    setIsRunningTemplate(false)
+  }
+
   const handleMetadataUpdate = async () => {
     try {
       const updatedMetadata = await FileAPI.getMetadata()
@@ -155,6 +177,27 @@ export default function NodeFlowPage() {
                       <>
                         <Sparkles className="w-4 h-4 mr-2" />
                         Generate All
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={isRunningTemplate ? handleStopTemplate : handleRunTemplate}
+                    disabled={isGenerating}
+                    className={isRunningTemplate 
+                      ? "bg-red-600 hover:bg-red-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                      : "bg-green-600 hover:bg-green-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                    }
+                    size="sm"
+                  >
+                    {isRunningTemplate ? (
+                      <>
+                        <Square className="w-4 h-4 mr-2" />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-2" />
+                        Run
                       </>
                     )}
                   </Button>

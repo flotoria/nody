@@ -281,8 +281,14 @@ class FileDatabase:
 class OutputLogger:
     """Manages real-time output messages."""
     
-    @staticmethod
-    def write_output(message: str, level: str = "INFO"):
+    def __init__(self):
+        self.output_file = OUTPUT_FILE
+    
+    def set_output_file(self, output_file: Path):
+        """Set the output file to write to."""
+        self.output_file = output_file
+    
+    def write_output(self, message: str, level: str = "INFO"):
         """Write a message to the output file for real-time progress."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         output_entry = {
@@ -292,9 +298,9 @@ class OutputLogger:
         }
         
         # Load existing output or create new
-        if OUTPUT_FILE.exists():
+        if self.output_file.exists():
             try:
-                output_data = json.loads(OUTPUT_FILE.read_text(encoding='utf-8'))
+                output_data = json.loads(self.output_file.read_text(encoding='utf-8'))
             except (json.JSONDecodeError, IOError):
                 output_data = {"messages": []}
         else:
@@ -309,24 +315,22 @@ class OutputLogger:
         
         # Write back to file
         try:
-            OUTPUT_FILE.write_text(json.dumps(output_data, indent=2, ensure_ascii=False), encoding='utf-8')
+            self.output_file.write_text(json.dumps(output_data, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error writing output: {e}")
     
-    @staticmethod
-    def clear_output():
+    def clear_output(self):
         """Clear the output file."""
         try:
-            OUTPUT_FILE.write_text(json.dumps({"messages": []}, indent=2, ensure_ascii=False), encoding='utf-8')
+            self.output_file.write_text(json.dumps({"messages": []}, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error clearing output: {e}")
     
-    @staticmethod
-    def get_output() -> Dict[str, Any]:
+    def get_output(self) -> Dict[str, Any]:
         """Get current output messages."""
-        if OUTPUT_FILE.exists():
+        if self.output_file.exists():
             try:
-                return json.loads(OUTPUT_FILE.read_text(encoding='utf-8'))
+                return json.loads(self.output_file.read_text(encoding='utf-8'))
             except (json.JSONDecodeError, IOError):
                 return {"messages": []}
         return {"messages": []}

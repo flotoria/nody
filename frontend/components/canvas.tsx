@@ -40,9 +40,10 @@ import {
   type FolderNodeData,
   type GenericNodeData,
 } from "./canvas/node-components"
+import { AnimatedEdge } from "./canvas/edge-components"
 import { useCanvasData, useModalState } from "./canvas/hooks"
 import { NODE_WIDTH, NODE_HEIGHT, FOLDER_HEADER_HEIGHT, FOLDER_COLLAPSED_HEIGHT } from "./canvas/utils"
-import type { NodeTypes } from "reactflow"
+import type { NodeTypes, EdgeTypes } from "reactflow"
 
 interface CanvasProps {
   selectedNode: string | null
@@ -50,6 +51,7 @@ interface CanvasProps {
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
   onDataChange?: (nodes: ApiFileNode[], metadata: Record<string, NodeMetadata>) => void
   onMetadataUpdate?: (metadata: Record<string, NodeMetadata>) => void
+  isRunning?: boolean
 }
 
 type CanvasNodeData = FileNodeData | FolderNodeData | GenericNodeData
@@ -83,9 +85,13 @@ const nodeTypes = {
   genericNode: GenericNodeComponent,
 } satisfies NodeTypes
 
+const edgeTypes = {
+  animated: AnimatedEdge,
+} satisfies EdgeTypes
+
 const isFileNodeData = (data: CanvasNodeData): data is FileNodeData => data.kind === "file"
 
-function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
+function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate, isRunning = false }: CanvasProps) {
   const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
@@ -496,12 +502,13 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         target: edge.to,
         label: typeLabel,
         data: { type: edge.type ?? "depends_on", description: edge.description },
-        type: "smoothstep",
+        type: "animated",
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         style: {
           pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
           cursor: "pointer",
           strokeWidth: 2,
+          stroke: '#a855f7',
         },
         zIndex: 1000,
       }
@@ -728,15 +735,26 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
   const defaultEdgeOptions = useMemo(() => ({
     type: "smoothstep" as const,
-    animated: false,
+    animated: true,
     deletable: true,
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+    markerEnd: { 
+      type: MarkerType.ArrowClosed, 
+      width: 20, 
+      height: 20,
+      color: '#a855f7'
+    },
     style: { 
-      strokeWidth: 2,
+      strokeWidth: 2.5,
       pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
-      cursor: "pointer"
+      cursor: "pointer",
+      stroke: '#a855f7',
+      filter: 'drop-shadow(0 0 8px rgba(168, 85, 247, 0.6))',
     },
     zIndex: 1000,
+    pathOptions: {
+      offset: 0,
+      borderRadius: 8,
+    },
   }), [])
 
   const handleNodeConfigure = useCallback(async (config: NodeConfiguration) => {
@@ -914,6 +932,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             minZoom={0.2}
             maxZoom={2.5}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             className="bg-background canvas-flow"
             connectionMode={ConnectionMode.Loose}

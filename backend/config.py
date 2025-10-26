@@ -16,6 +16,7 @@ PROJECT_SPEC_PATH = CANVAS_ROOT / "project-spec.json"
 EDGES_FILE = CANVAS_ROOT / "edges.json"
 METADATA_FILE = CANVAS_ROOT / "metadata.json"
 OUTPUT_FILE = CANVAS_ROOT / "output.json"
+TEMPLATE_TRACKER_FILE = CANVAS_ROOT / "template_tracker.json"
 
 # Ensure canvas directories exist
 CANVAS_ROOT.mkdir(exist_ok=True)

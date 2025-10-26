@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import os
 import json
 from datetime import datetime
@@ -15,14 +15,14 @@ import threading
 from dotenv import load_dotenv
 from agents import create_node_generation_agent, generate_nodes_from_conversation
 
-from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR, BACKEND_ROOT
+from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR, BACKEND_ROOT, TEMPLATE_TRACKER_FILE, OUTPUT_FILE
 from models import (
     FileNode, FileContent, FileCreate, DescriptionUpdate, NodeMetadata,
     OnboardingChatRequest, OnboardingChatResponse, ProjectSpecResponse, PrepareProjectResponse,
     AgentChatRequest, AgentChatResponse, AgentMessage, TerminalCommand,
     FolderNode, FolderCreate, FolderUpdate
 )
-from database import file_db, output_logger
+from database import file_db, output_logger, OutputLogger
 from onboarding import onboarding_service
 from code_generation import code_generation_service
 from workspace import workspace_service, WorkspaceManager
@@ -432,6 +432,301 @@ async def clear_canvas():
         raise HTTPException(status_code=500, detail=f"Error clearing canvas: {str(e)}")
 
 
+async def generate_template_output(template_id: str, metadata: dict):
+    """Generate realistic console output based on the template type and nodes."""
+    import asyncio
+    
+    output_messages = []
+    
+    if template_id == "hello-world":
+        # Simple Todo Tracker
+        output_messages = [
+            ("SUCCESS", "Loading template: Simple Todo Tracker"),
+            ("INFO", "Initializing project structure..."),
+            ("INFO", "Creating file: main.py"),
+            ("SUCCESS", "✓ main.py created successfully"),
+            ("INFO", "Creating file: todo.py"),
+            ("SUCCESS", "✓ todo.py created successfully"),
+            ("INFO", "Creating file: storage.py"),
+            ("SUCCESS", "✓ storage.py created successfully"),
+            ("INFO", "Setting up dependencies..."),
+            ("SUCCESS", "✓ Dependencies configured"),
+            ("SUCCESS", "Project structure loaded successfully!"),
+            ("INFO", "Ready to start building your todo tracker app."),
+        ]
+    elif template_id == "frontend-web":
+        # Personal Portfolio Website
+        output_messages = [
+            ("SUCCESS", "Loading template: Personal Portfolio Website"),
+            ("INFO", "Initializing React project..."),
+            ("INFO", "Creating file: frontend/app/page.tsx"),
+            ("SUCCESS", "✓ Main page component created"),
+            ("INFO", "Creating file: frontend/components/Hero.tsx"),
+            ("SUCCESS", "✓ Hero component created"),
+            ("INFO", "Creating file: frontend/components/ProjectCard.tsx"),
+            ("SUCCESS", "✓ Project card component created"),
+            ("INFO", "Creating file: frontend/app/globals.css"),
+            ("SUCCESS", "✓ Global styles configured"),
+            ("INFO", "Setting up Tailwind CSS..."),
+            ("SUCCESS", "✓ Tailwind CSS initialized"),
+            ("INFO", "Installing dependencies..."),
+            ("SUCCESS", "✓ React, Next.js installed"),
+            ("SUCCESS", "Portfolio website structure loaded successfully!"),
+            ("INFO", "Ready to customize your portfolio."),
+        ]
+    elif template_id == "data-pipeline":
+        # CSV Data Analyzer
+        output_messages = [
+            ("SUCCESS", "Loading template: CSV Data Analyzer"),
+            ("INFO", "Initializing Python project..."),
+            ("INFO", "Creating file: main.py"),
+            ("SUCCESS", "✓ Main pipeline script created"),
+            ("INFO", "Creating file: csv_reader.py"),
+            ("SUCCESS", "✓ CSV reader module created"),
+            ("INFO", "Creating file: analyzer.py"),
+            ("SUCCESS", "✓ Data analyzer module created"),
+            ("INFO", "Creating file: exporter.py"),
+            ("SUCCESS", "✓ Data exporter module created"),
+            ("INFO", "Installing pandas, numpy..."),
+            ("SUCCESS", "✓ Data processing libraries installed"),
+            ("INFO", "Setting up data directory..."),
+            ("SUCCESS", "✓ Project structure complete"),
+            ("SUCCESS", "CSV data analyzer loaded successfully!"),
+            ("INFO", "Ready to process CSV files."),
+        ]
+    elif template_id == "test":
+        # Test
+        output_messages = [
+            ("SUCCESS", "Loading template: Test"),
+            ("INFO", "Initializing test project..."),
+            ("INFO", "Creating file: test.py"),
+            ("SUCCESS", "✓ test.py created successfully"),
+            ("SUCCESS", "Test project loaded successfully!"),
+        ]
+    
+    # Stream the output messages with delays to simulate realistic output
+    for level, message in output_messages:
+        output_logger.write_output(message, level)
+        await asyncio.sleep(0.3)  # 300ms delay between messages
+
+
+@app.post("/canvas/load-template/{template_id}")
+async def load_template(template_id: str):
+    """Load a template project from dummy/ directory into canvas"""
+    try:
+        import shutil
+        from pathlib import Path
+        
+        # Define template mapping (template IDs to folder names)
+        template_mapping = {
+            "hello-world": "simple-todo-tracker",
+            "frontend-web": "personal-portfolio-website",
+            "data-pipeline": "csv-data-analyzer",
+            "test": "test"
+        }
+        
+        if template_id not in template_mapping:
+            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        
+        template_folder_name = template_mapping[template_id]
+        # dummy/ is at the root level, not in backend/
+        # BACKEND_ROOT is backend/, so we need to go up one level
+        dummy_template_path = BACKEND_ROOT.parent / "dummy" / template_folder_name
+        
+        if not dummy_template_path.exists():
+            raise HTTPException(status_code=404, detail=f"Template folder {template_folder_name} not found at {dummy_template_path}")
+        
+        # Clear the canvas first
+        EDGES_FILE.write_text(json.dumps({"edges": []}, indent=2), encoding='utf-8')
+        METADATA_FILE.write_text(json.dumps({}, indent=2), encoding='utf-8')
+        
+        if CANVAS_DIR.exists():
+            shutil.rmtree(CANVAS_DIR)
+        
+        CANVAS_DIR.mkdir(exist_ok=True)
+        file_db.files_db.clear()
+        output_logger.clear_output()
+        
+        # Copy metadata.json
+        template_metadata = dummy_template_path / "metadata.json"
+        if template_metadata.exists():
+            shutil.copy(template_metadata, METADATA_FILE)
+        
+        # Copy edges.json
+        template_edges = dummy_template_path / "edges.json"
+        if template_edges.exists():
+            shutil.copy(template_edges, EDGES_FILE)
+        
+        # Copy nodes directory
+        template_nodes = dummy_template_path / "nodes"
+        if template_nodes.exists():
+            import shutil
+            shutil.copytree(template_nodes, CANVAS_DIR / "nodes")
+        
+        # Refresh the database from the new metadata
+        metadata = file_db.load_metadata()
+        file_db.refresh_files_from_metadata(metadata)
+        
+        # Determine output file path for this template
+        template_output_file = dummy_template_path / "output.json"
+        
+        # Save which template is active and its output path
+        # Store the proper template_id and folder info
+        template_tracker_data = {
+            "template_id": template_id,  # This is the key from template_mapping (e.g., "data-pipeline")
+            "output_file": str(template_output_file),
+            "template_folder": template_folder_name  # This is the folder name (e.g., "csv-data-analyzer")
+        }
+        TEMPLATE_TRACKER_FILE.write_text(json.dumps(template_tracker_data), encoding='utf-8')
+        print(f"Saved template tracker: {template_tracker_data}")
+        
+        # Don't generate output on load - only when user clicks Run
+        # await generate_template_output(template_id, metadata)
+        
+        return {"message": f"Template {template_id} loaded successfully"}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"Template files not found: {str(e)}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error loading template: {str(e)}")
+
+
+@app.post("/canvas/run-template")
+async def run_template():
+    """Run the currently active template and stream realistic output"""
+    try:
+        from pathlib import Path
+        
+        # Define reverse template mapping (folder names to template IDs)
+        folder_to_template_mapping = {
+            "simple-todo-tracker": "hello-world",
+            "personal-portfolio-website": "frontend-web",
+            "csv-data-analyzer": "data-pipeline",
+            "test": "test"
+        }
+        
+        # Check if a template is active
+        if not TEMPLATE_TRACKER_FILE.exists():
+            return {"success": False, "error": "No template is currently loaded. Please load a template first."}
+        
+        template_data = json.loads(TEMPLATE_TRACKER_FILE.read_text(encoding='utf-8'))
+        template_id = template_data.get("template_id")
+        template_folder = template_data.get("template_folder")
+        template_output_file = template_data.get("output_file")
+        
+        # If template_id is actually a folder name, convert it to proper template ID
+        if template_id in folder_to_template_mapping:
+            template_id = folder_to_template_mapping[template_id]
+        elif template_folder and template_folder in folder_to_template_mapping:
+            template_id = folder_to_template_mapping[template_folder]
+        
+        if not template_id:
+            return {"success": False, "error": "No template is currently loaded. Please load a template first."}
+        
+        # Get the output file path for this template
+        output_file_path = Path(template_output_file) if template_output_file else OUTPUT_FILE
+        
+        # Set the logger to write to the template's output file
+        template_logger = OutputLogger()
+        template_logger.set_output_file(output_file_path)
+        
+        # Clear existing output
+        template_logger.clear_output()
+        
+        # Load metadata to get the current state
+        metadata = file_db.load_metadata()
+        
+        # Generate template-specific execution output
+        await generate_template_execution_output(template_id, metadata, template_logger)
+        
+        return {"success": True, "message": f"Template {template_id} run completed"}
+    except FileNotFoundError as e:
+        return {"success": False, "error": f"Template output file not found: {str(e)}"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": f"Error running template: {str(e)}"}
+
+
+async def generate_template_execution_output(template_id: str, metadata: dict, logger: OutputLogger):
+    """Generate realistic execution output when running a template."""
+    import asyncio
+    import random
+    
+    print(f"DEBUG: generate_template_execution_output called with template_id: {template_id}")
+    output_messages = []
+    
+    if template_id == "hello-world":
+        # Simple Todo Tracker - execution output based on actual code
+        output_messages = [
+            ("INFO", "$ python main.py"),
+            ("INFO", "Welcome to Todo Tracker!"),
+            ("INFO", "Commands: add <task>, list, remove <index>, quit"),
+            ("INFO", ""),
+            ("INFO", "> _"),
+        ]
+    elif template_id == "frontend-web":
+        # Personal Portfolio Website - execution output based on Next.js actual behavior
+        compile_time = round(random.uniform(1.5, 3.5), 1)
+        output_messages = [
+            ("INFO", "$ npm run dev"),
+            ("INFO", ""),
+            ("INFO", "  ▲ Next.js 14.0.0"),
+            ("INFO", "  - Local:        http://localhost:3001"),
+            ("INFO", "  - Environments: .env.local"),
+            ("INFO", ""),
+            ("INFO", " ✓ Ready in 124ms"),
+            ("INFO", ""),
+            ("INFO", " ○ Compiling / ..."),
+            ("INFO", " ✓ Compiled / in 251ms"),
+            ("SUCCESS", "✓ Portfolio website is running at http://localhost:3001"),
+        ]
+    elif template_id == "data-pipeline":
+        # CSV Data Analyzer - execution output based on actual code
+        rows = random.randint(500, 5000)
+        cols = random.randint(3, 8)
+        min_val1 = round(random.uniform(10, 20), 1)
+        max_val1 = round(random.uniform(80, 100), 1)
+        mean_val1 = round(random.uniform(40, 60), 1)
+        
+        output_messages = [
+            ("INFO", "$ python main.py"),
+            ("INFO", "CSV Data Analyzer"),
+            ("INFO", "=" * 50),
+            ("INFO", f"Loaded {rows} rows from CSV"),
+            ("INFO", ""),
+            ("INFO", "Data Summary:"),
+            ("INFO", f"Total rows: {rows}"),
+            ("INFO", f"Total columns: {cols}"),
+            ("INFO", f"Columns: id, name, category, value1, value2"),
+            ("INFO", ""),
+            ("INFO", "Statistics:"),
+            ("INFO", f"value1: min={min_val1}, max={max_val1}, mean={mean_val1}"),
+            ("INFO", f"value2: min={round(random.uniform(5, 15), 1)}, max={round(random.uniform(70, 95), 1)}, mean={round(random.uniform(35, 55), 1)}"),
+            ("INFO", ""),
+            ("INFO", "Analysis complete! Results saved to summary.json and statistics.csv"),
+        ]
+    elif template_id == "test":
+        # Test - execution output based on actual code
+        output_messages = [
+            ("INFO", "$ python test.py"),
+            ("INFO", "asdjioajsoesg"),
+        ]
+    else:
+        # Fallback for unknown templates
+        output_messages = [
+            ("INFO", "Starting project..."),
+            ("SUCCESS", "✓ Project started"),
+            ("INFO", "Ready to run!"),
+        ]
+    
+    # Stream the output messages with delays
+    for level, message in output_messages:
+        logger.write_output(message, level)
+        await asyncio.sleep(0.4)  # 400ms delay between messages
+
+
 @app.put("/files/{file_id}/position")
 async def update_file_position(file_id: str, x: float, y: float):
     """Update node file position"""
@@ -805,6 +1100,25 @@ async def delete_edge(from_node: str, to_node: str, edge_type: str):
 @app.get("/output")
 async def get_output():
     """Get real-time output messages"""
+    try:
+        # Check if a template is loaded and use its output file
+        if TEMPLATE_TRACKER_FILE.exists():
+            template_data = json.loads(TEMPLATE_TRACKER_FILE.read_text(encoding='utf-8'))
+            template_output_file = template_data.get("output_file")
+            
+            if template_output_file:
+                from pathlib import Path
+                output_file_path = Path(template_output_file)
+                
+                # Create a temporary logger pointing to the template's output file
+                template_logger = OutputLogger()
+                template_logger.set_output_file(output_file_path)
+                return template_logger.get_output()
+    except Exception as e:
+        print(f"Error getting template output: {e}")
+        # Fall through to default behavior
+    
+    # Default: use the canvas output
     return output_logger.get_output()
 
 

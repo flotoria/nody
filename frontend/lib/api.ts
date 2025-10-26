@@ -394,6 +394,40 @@ export class FileAPI {
       throw new Error('Failed to clear canvas')
     }
   }
+
+  static async loadTemplate(templateId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/canvas/load-template/${templateId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        return { success: false, error: errorData.detail || 'Failed to load template' }
+      }
+      
+      const data = await response.json()
+      return { success: true, message: data.message }
+    } catch (error) {
+      console.error('Failed to load template:', error)
+      return { success: false, error: 'Failed to load template' }
+    }
+  }
+
+  static async runTemplate(): Promise<{ success: boolean; message?: string; error?: string }> {
+    return fetch(`${API_BASE_URL}/canvas/run-template`, {
+      method: 'POST',
+    })
+    .then(response => response.json())
+    .then(data => ({ success: true, message: data.message }))
+    .catch(error => {
+      console.error('Failed to run template:', error)
+      return { success: false, error: 'Failed to run template' }
+    })
+  }
   static async generateFileCode(fileId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     const response = await fetch(`${API_BASE_URL}/files/${fileId}/generate`, {
       method: 'POST',
