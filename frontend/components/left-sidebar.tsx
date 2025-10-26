@@ -83,23 +83,6 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
     e.dataTransfer.effectAllowed = "move"
   }
 
-  const handleNodeClick = async (node: { label: string; type: string }) => {
-    if (node.type === "fastapi_get" && onGenerateEndpoint) {
-      onGenerateEndpoint("GET")
-      return
-    } else if (node.type === "fastapi_post" && onGenerateEndpoint) {
-      onGenerateEndpoint("POST")
-      return
-    } else if (node.type === "file") {
-      // Trigger file creation - the modal will be shown by Canvas component
-      // We need to dispatch a custom event to trigger the canvas to show the file modal
-      window.dispatchEvent(new CustomEvent('create-file'))
-    } else if (node.type === "folder") {
-      // Trigger folder creation
-      window.dispatchEvent(new CustomEvent('create-folder'))
-    }
-  }
-
   return (
     <div className="h-full w-full neu-raised-sm bg-card flex flex-col">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
@@ -142,30 +125,20 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
           </div>
 
           <div className="p-4 space-y-2">
-            {nodeTemplates[selectedCategory as keyof typeof nodeTemplates]?.map((node) => {
-              const category = nodeCategories.find(c => c.id === selectedCategory)
-              const dotColor = category?.dotColor || "bg-primary"
-              
-              return (
-                <div
-                  key={node.label}
-                  draggable={!node.isSpecial}
-                  onDragStart={(e) => !node.isSpecial && handleDragStart(e, node)}
-                  onClick={() => node.isSpecial && handleNodeClick(node)}
-                  className={`neu-raised neu-hover neu-active bg-card p-3 rounded-xl transition-all ${
-                    node.isSpecial ? "cursor-pointer" : "cursor-move"
-                  } hover:scale-105`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${dotColor}`} />
-                    <span className="text-sm font-medium text-foreground">{node.label}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {node.isSpecial ? "Click to generate" : "Drag to canvas"}
-                  </p>
+          {nodeTemplates[selectedCategory as keyof typeof nodeTemplates]?.map((node) => (
+              <div
+                key={node.label}
+                draggable
+                onDragStart={(e) => handleDragStart(e, node)}
+                className="neu-raised neu-hover neu-active bg-card p-3 rounded-xl cursor-move transition-all hover:scale-105"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-primary" />
+                  <span className="text-sm font-medium text-foreground">{node.label}</span>
                 </div>
-              )
-            })}
+                <p className="text-xs text-muted-foreground mt-1">Drag to canvas</p>
+              </div>
+            ))}
           </div>
         </TabsContent>
 
