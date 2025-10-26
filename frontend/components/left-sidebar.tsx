@@ -43,7 +43,7 @@ const nodeTemplates = {
   api: [
     { label: "FastAPI GET", type: "fastapi_get", isSpecial: true },
     { label: "FastAPI POST", type: "fastapi_post", isSpecial: true },
-    { label: "REST Call", type: "api" },
+    { label: "FastAPI Server", type: "api" },
     { label: "GraphQL", type: "api" },
     { label: "Webhook", type: "api" },
     { label: "WebSocket", type: "api" },
@@ -83,11 +83,20 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
     e.dataTransfer.effectAllowed = "move"
   }
 
-  const handleNodeClick = (node: { label: string; type: string }) => {
+  const handleNodeClick = async (node: { label: string; type: string }) => {
     if (node.type === "fastapi_get" && onGenerateEndpoint) {
       onGenerateEndpoint("GET")
+      return
     } else if (node.type === "fastapi_post" && onGenerateEndpoint) {
       onGenerateEndpoint("POST")
+      return
+    } else if (node.type === "file") {
+      // Trigger file creation - the modal will be shown by Canvas component
+      // We need to dispatch a custom event to trigger the canvas to show the file modal
+      window.dispatchEvent(new CustomEvent('create-file'))
+    } else if (node.type === "folder") {
+      // Trigger folder creation
+      window.dispatchEvent(new CustomEvent('create-folder'))
     }
   }
 

@@ -83,7 +83,7 @@ def create_empty_files_for_metadata():
         for node_id, node_meta in metadata.items():
             if node_meta.get("type") == "file":
                 file_name = node_meta.get("fileName", f"file_{node_id}.py")
-                file_path = os.path.join(CANVAS_DIR, "nodes", file_name)
+                file_path = os.path.join(CANVAS_DIR, file_name)
                 
                 # Create completely empty file if it doesn't exist
                 if not os.path.exists(file_path):
@@ -116,7 +116,7 @@ async def generate_node_code(node: dict):
         clean_file_name = file_name
         if file_name.startswith("nodes/"):
             clean_file_name = file_name[len("nodes/"):]
-        file_path = os.path.join(CANVAS_DIR, "nodes", clean_file_name)
+        file_path = os.path.join(CANVAS_DIR, clean_file_name)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code_content)
@@ -284,8 +284,8 @@ async def create_folder(folder_create: FolderCreate):
         # Generate unique folder ID
         folder_id = f"folder_{len([k for k in metadata.keys() if k.startswith('folder_')]) + 1}"
         
-        # Create actual directory in canvas/nodes
-        folder_path = CANVAS_DIR / "nodes" / folder_create.name
+        # Create actual directory in canvas/nodes (CANVAS_DIR is already canvas/nodes)
+        folder_path = CANVAS_DIR / folder_create.name
         folder_path.mkdir(parents=True, exist_ok=True)
         print(f"Created directory: {folder_path}")
         
@@ -359,7 +359,7 @@ async def delete_folder(folder_id: str):
         # Get folder path and delete directory if it exists
         folder_name = metadata[folder_id].get("name")
         if folder_name:
-            folder_path = CANVAS_DIR / "nodes" / folder_name
+            folder_path = CANVAS_DIR / folder_name
             if folder_path.exists() and folder_path.is_dir():
                 import shutil
                 shutil.rmtree(folder_path)
@@ -409,11 +409,11 @@ async def move_file_to_folder(file_id: str, folder_id: Optional[str] = None):
             # Get old folder path
             old_folder_id = metadata[file_id].get("parentFolder")
             old_folder_name = metadata[old_folder_id].get("name") if old_folder_id and old_folder_id in metadata else None
-            old_file_path = CANVAS_DIR / "nodes" / old_folder_name / base_file_name if old_folder_name else CANVAS_DIR / "nodes" / base_file_name
+            old_file_path = CANVAS_DIR / old_folder_name / base_file_name if old_folder_name else CANVAS_DIR / base_file_name
             
             # Get new folder path
             new_folder_name = metadata[folder_id].get("name") if folder_id and folder_id in metadata else None
-            new_file_path = CANVAS_DIR / "nodes" / new_folder_name / base_file_name if new_folder_name else CANVAS_DIR / "nodes" / base_file_name
+            new_file_path = CANVAS_DIR / new_folder_name / base_file_name if new_folder_name else CANVAS_DIR / base_file_name
             
             # Move the actual file if it exists
             if old_file_path.exists() and old_file_path != new_file_path:

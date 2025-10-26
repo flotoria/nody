@@ -306,20 +306,20 @@ class CodeGenerationService:
             output_logger.write_output(f"   Description: {description}", "INFO")
             
             # Create prompt for code generation
-            prompt = f"""Based on this description: "{description}", generate ONLY the complete code for a file named "{file_name}".
+            prompt = f"""Generate ONLY the raw code for "{file_name}" based on this description: "{description}"
 
-CRITICAL REQUIREMENTS:
-- Generate ONLY the raw code content
-- NO explanations, comments about the code, or markdown formatting
-- NO "Here is the code:" or similar introductory text
-- NO code blocks with triple backticks
-- NO explanations after the code
-- Just the pure, executable code content
+ABSOLUTELY NO MARKDOWN OR FORMATTING:
+- NO markdown code blocks (no triple backticks ```)
+- NO "Here is the code:" or similar text
+- NO explanations or comments outside the code
+- NO markdown headers, bullets, or formatting
+- ONLY return the raw, executable code content itself
+- NO text before or after the code
 
 Description: {description}
 File name: {file_name}
 
-Generate ONLY the code:"""
+Output ONLY the pure raw code with no formatting or markdown:"""
             
             # Send to Anthropic
             response = self.client.messages.create(
@@ -410,20 +410,20 @@ Generate ONLY the code:"""
                 output_logger.write_output(f"[{i}/{total_files}] Generating {file_name}...", "INFO")
                 output_logger.write_output(f"   Description: {description}", "INFO")
 
-                prompt = f"""Based on this description: "{description}", generate ONLY the complete code for a file named "{file_name}".
+                prompt = f"""Generate ONLY the raw code for "{file_name}" based on this description: "{description}"
 
-CRITICAL REQUIREMENTS:
-- Generate ONLY the raw code content
-- NO explanations, comments about the code, or markdown formatting
-- NO "Here is the code:" or similar introductory text
-- NO code blocks with triple backticks
-- NO explanations after the code
-- Just the pure, executable code content
+ABSOLUTELY NO MARKDOWN OR FORMATTING:
+- NO markdown code blocks (no triple backticks ```)
+- NO "Here is the code:" or similar text
+- NO explanations or comments outside the code
+- NO markdown headers, bullets, or formatting
+- ONLY return the raw, executable code content itself
+- NO text before or after the code
 
 Description: {description}
 File name: {file_name}
 
-Generate ONLY the code:"""
+Output ONLY the pure raw code with no formatting or markdown:"""
 
                 response = self.client.messages.create(
                     model="claude-sonnet-4-5-20250929",

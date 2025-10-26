@@ -1258,6 +1258,30 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     setShowFileModal(true)
   }, [defaultFilePosition])
 
+  const openCreateFolderModal = useCallback((position?: { x: number; y: number }) => {
+    setPendingFolderPosition(position ?? defaultFilePosition())
+    setShowFolderModal(true)
+  }, [defaultFilePosition])
+
+  // Listen for custom events to show modals
+  useEffect(() => {
+    const handleCreateFile = () => {
+      openCreateFileModal()
+    }
+    
+    const handleCreateFolder = () => {
+      openCreateFolderModal()
+    }
+    
+    window.addEventListener('create-file', handleCreateFile)
+    window.addEventListener('create-folder', handleCreateFolder)
+    
+    return () => {
+      window.removeEventListener('create-file', handleCreateFile)
+      window.removeEventListener('create-folder', handleCreateFolder)
+    }
+  }, [openCreateFileModal, openCreateFolderModal])
+
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = "move"
