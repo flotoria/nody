@@ -13,6 +13,14 @@ from config import GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL, ONBOARDING_SYSTEM_PRO
 from utils import extract_structured_payload
 
 
+# Template matching keywords for faking the generation process
+TEMPLATE_KEYWORDS = {
+    "community-events-hub": ["events", "community", "gathering", "meetup", "calendar", "rsvp", "social", "activities", "organize"],
+    "cooking-companion": ["cooking", "recipe", "meal", "food", "ingredient", "chef", "cookbook", "cuisine", "kitchen"],
+    "home-inventory-tracker": ["inventory", "home", "track", "items", "storage", "belongings", "possessions", "catalog", "manage"],
+}
+
+
 class OnboardingService:
     """Handles project specification gathering through conversational interface."""
     
@@ -27,6 +35,32 @@ class OnboardingService:
 
     def __init__(self):
         self.sessions: Dict[str, Dict[str, Any]] = {}
+    
+    def _match_template_to_conversation(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """
+        Match the conversation to an existing template based on keywords.
+        Returns template ID (e.g., 'hello-world') or None.
+        """
+        # Collect all user messages
+        user_content = " ".join([
+            msg.get("content", "").lower() 
+            for msg in messages 
+            if msg.get("role") == "user"
+        ])
+        
+        # Score each template based on keyword matches
+        best_template = None
+        best_score = 0
+        
+        for template_name, keywords in TEMPLATE_KEYWORDS.items():
+            score = sum(1 for keyword in keywords if keyword in user_content)
+            if score > best_score:
+                best_score = score
+                best_template = template_name
+        
+        # Map folder name to template ID (same as folder name for new_canvas projects)
+        # Since these are the actual folder names in new_canvas, just return the folder name
+        return best_template if best_template else "community-events-hub"
     
     def _user_requested_finalization(self, messages: List[Dict[str, str]]) -> bool:
         """Return True if the most recent user message signals the conversation should conclude."""
@@ -150,6 +184,7 @@ class OnboardingService:
 
         project_spec = payload.get("project_spec")
         spec_saved = False
+        template_id = None
 
         if status == "ready" or (force_finalize and isinstance(project_spec, dict)):
             if not isinstance(project_spec, dict):
@@ -158,6 +193,9 @@ class OnboardingService:
             spec_saved = True
             status = "ready"
             missing_information = []
+            # Match conversation to template
+            template_id = self._match_template_to_conversation(messages)
+            print(f"Matched conversation to template: {template_id}")
         else:
             project_spec = None
 
@@ -166,15 +204,23 @@ class OnboardingService:
             "missing_information": missing_information,
             "project_spec": project_spec,
             "assistant_message": assistant_message,
+            "template_id": template_id,
         }
 
-        return {
+        response = {
             "message": assistant_message,
             "status": status,
             "missing_information": missing_information,
             "project_spec": project_spec,
             "spec_saved": spec_saved,
         }
+        
+        # Add template_id when ready so frontend can load it
+        if template_id:
+            response["template_id"] = template_id
+            print(f"Added template_id to response: {template_id}")
+
+        return response
     
     def get_project_spec(self) -> Dict[str, Any]:
         """Return the persisted project specification if it exists."""

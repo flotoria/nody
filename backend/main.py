@@ -65,6 +65,16 @@ async def startup_event():
         _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
         print("Node generation agent initialized")
         
+        # Sync canvas data to ChromaDB for semantic search
+        try:
+            from db.canvas_db import CanvasDB
+            canvas_db = CanvasDB()
+            canvas_db.sync_from_files(CANVAS_DIR)
+            print(f"Synced canvas data from {CANVAS_DIR}")
+        except Exception as e:
+            print(f"Warning: Failed to sync canvas data to ChromaDB: {e}")
+            print("Semantic search may return zero results until files are indexed")
+        
         print("All services initialized successfully")
     except Exception as e:
         print(f"Failed to initialize services: {e}")
@@ -512,63 +522,71 @@ async def generate_template_output(template_id: str, metadata: dict):
 
 @app.post("/canvas/load-template/{template_id}")
 async def load_template(template_id: str):
-    """Load a template project from dummy/ directory into canvas"""
+    """Load a template project from new_canvas/ or dummy/ directory into canvas"""
     try:
         import shutil
         from pathlib import Path
         
-        # Define template mapping (template IDs to folder names)
-        template_mapping = {
-            "hello-world": "simple-todo-tracker",
-            "frontend-web": "personal-portfolio-website",
-            "data-pipeline": "csv-data-analyzer",
-            "test": "test"
-        }
+        # First try new_canvas directory
+        new_canvas_path = BACKEND_ROOT.parent / "new_canvas" / template_id
+        dummy_path = BACKEND_ROOT.parent / "dummy"
         
-        if template_id not in template_mapping:
-            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        # Check if template exists in new_canvas
+        if new_canvas_path.exists():
+            template_folder_name = template_id
+            template_path = new_canvas_path
+        else:
+            # Fall back to old dummy directory mapping
+            template_mapping = {
+                "hello-world": "simple-todo-tracker",
+                "frontend-web": "personal-portfolio-website",
+                "data-pipeline": "csv-data-analyzer",
+                "test": "test"
+            }
+            
+            if template_id not in template_mapping:
+                raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+            
+            template_folder_name = template_mapping[template_id]
+            template_path = dummy_path / template_folder_name
         
-        template_folder_name = template_mapping[template_id]
-        # dummy/ is at the root level, not in backend/
-        # BACKEND_ROOT is backend/, so we need to go up one level
-        dummy_template_path = BACKEND_ROOT.parent / "dummy" / template_folder_name
-        
-        if not dummy_template_path.exists():
-            raise HTTPException(status_code=404, detail=f"Template folder {template_folder_name} not found at {dummy_template_path}")
+        if not template_path.exists():
+            raise HTTPException(status_code=404, detail=f"Template folder {template_folder_name} not found at {template_path}")
         
         # Clear the canvas first
         EDGES_FILE.write_text(json.dumps({"edges": []}, indent=2), encoding='utf-8')
         METADATA_FILE.write_text(json.dumps({}, indent=2), encoding='utf-8')
         
+        # Remove CANVAS_DIR if it exists
         if CANVAS_DIR.exists():
             shutil.rmtree(CANVAS_DIR)
         
-        CANVAS_DIR.mkdir(exist_ok=True)
         file_db.files_db.clear()
         output_logger.clear_output()
         
         # Copy metadata.json
-        template_metadata = dummy_template_path / "metadata.json"
+        template_metadata = template_path / "metadata.json"
         if template_metadata.exists():
             shutil.copy(template_metadata, METADATA_FILE)
         
         # Copy edges.json
-        template_edges = dummy_template_path / "edges.json"
+        template_edges = template_path / "edges.json"
         if template_edges.exists():
             shutil.copy(template_edges, EDGES_FILE)
         
         # Copy nodes directory
-        template_nodes = dummy_template_path / "nodes"
+        template_nodes = template_path / "nodes"
         if template_nodes.exists():
-            import shutil
-            shutil.copytree(template_nodes, CANVAS_DIR / "nodes")
+            # Copy the entire nodes directory from template
+            # copytree will create CANVAS_DIR automatically, so no need to mkdir first
+            shutil.copytree(template_nodes, CANVAS_DIR)
         
         # Refresh the database from the new metadata
         metadata = file_db.load_metadata()
         file_db.refresh_files_from_metadata(metadata)
         
         # Determine output file path for this template
-        template_output_file = dummy_template_path / "output.json"
+        template_output_file = template_path / "output.json" if (template_path / "output.json").exists() else None
         
         # Save which template is active and its output path
         # Store the proper template_id and folder info
@@ -1206,7 +1224,15 @@ async def chat_nodes(request: NodeChatRequest):
             anthropic_messages.append({"role": msg.role, "content": msg.content})
         
         # Generate nodes using Anthropic with agent config
-        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        agent_response = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        
+        # Extract the agent's message and generated nodes from response
+        generated_nodes = agent_response.get("nodes") if agent_response and isinstance(agent_response, dict) else None
+        agent_message = agent_response.get("message", "I've processed your request.") if agent_response and isinstance(agent_response, dict) else "I've processed your request."
+        tool_results = agent_response.get("tool_results", []) if agent_response and isinstance(agent_response, dict) else []
+        
+        print(f"Agent message: {agent_message}")
+        print(f"Generated nodes: {generated_nodes}")
         
         # Create files and generate code for any new nodes
         if generated_nodes:
@@ -1234,10 +1260,14 @@ async def chat_nodes(request: NodeChatRequest):
                 print(f"Error generating edges between nodes: {e}")
                 # Don't fail the whole request if edge generation fails
         
-        # Create response message
-        assistant_message = "I've analyzed your conversation and generated nodes with code and edges for your canvas."
-        if generated_nodes:
-            assistant_message += f" I've created {len(generated_nodes)} nodes with generated code and automatic connections to help you build what you described."
+        # Use the agent's actual message, or create a helpful message based on what happened
+        if not agent_message or agent_message == "I've processed your request.":
+            if generated_nodes:
+                assistant_message = f"I've created {len(generated_nodes)} new node(s) on your canvas."
+            else:
+                assistant_message = agent_message if agent_message else "I've processed your request."
+        else:
+            assistant_message = agent_message
         
         return NodeChatResponse(
             message=assistant_message,

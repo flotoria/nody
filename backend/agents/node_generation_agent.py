@@ -8,11 +8,24 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 import anthropic
 
+# Import CanvasDB for semantic search
+import sys
+from pathlib import Path
+
+# Add backend directory to path for imports
+backend_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(backend_dir))
+
+from db.canvas_db import CanvasDB
+
 # Load environment variables
 load_dotenv()
 
 # Path to metadata.json - go up from backend/agents to backend, then to root, then into canvas
 METADATA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "canvas", "metadata.json")
+
+# Initialize CanvasDB instance for semantic search
+canvas_db = CanvasDB()
 
 def load_metadata() -> Dict[str, Any]:
     """Load metadata from metadata.json file."""
@@ -83,6 +96,46 @@ def get_metadata() -> Dict[str, Any]:
     """Get the current metadata."""
     return load_metadata()
 
+def search_similar_nodes(query: str, n_results: int = 5) -> Dict[str, Any]:
+    """
+    Search for similar existing nodes using semantic search in ChromaDB.
+    
+    Args:
+        query: Search query text
+        n_results: Number of results to return
+        
+    Returns:
+        Dictionary with success status and results
+    """
+    try:
+        nodes = canvas_db.query_nodes(query, n_results=n_results)
+        return {
+            "success": True,
+            "nodes": [{"id": node['id'], "metadata": node['metadata']} for node in nodes]
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+def search_related_files(query: str, n_results: int = 5) -> Dict[str, Any]:
+    """
+    Search for related files using semantic search in ChromaDB.
+    
+    Args:
+        query: Search query text
+        n_results: Number of results to return
+        
+    Returns:
+        Dictionary with success status and results
+    """
+    try:
+        files = canvas_db.query_files(query, n_results=n_results)
+        return {
+            "success": True,
+            "files": [{"path": file['id'], "content": file['content'][:500], "metadata": file['metadata']} for file in files]
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 
 def create_node_generation_agent():
     """
@@ -140,6 +193,42 @@ def create_node_generation_agent():
                 },
                 "required": ["nodes"]
             }
+        },
+        {
+            "name": "search_similar_nodes",
+            "description": "Search for similar existing nodes using semantic search. Use this to avoid creating duplicate nodes or to understand existing architecture before creating new nodes.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find similar nodes"
+                    },
+                    "n_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5)"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "search_related_files",
+            "description": "Search for related files and their content using semantic search. Use this to understand context and avoid duplicating functionality.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find related files"
+                    },
+                    "n_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5)"
+                    }
+                },
+                "required": ["query"]
+            }
         }
     ]
     
@@ -151,16 +240,35 @@ def create_node_generation_agent():
 
 Key responsibilities:
 - Understand user requests from conversation history
+- Search existing codebase to understand context and avoid duplicates
 - Identify what files should be created
 - Generate file names and descriptions that clearly explain what each file does
 - Use the add_nodes_to_metadata tool to actually create nodes
+
+WORKFLOW:
+1. When the user makes a request, FIRST use search_similar_nodes and search_related_files to understand the existing codebase
+2. Analyze the existing architecture to avoid duplicating functionality
+3. Identify what NEW files are needed (don't recreate existing ones)
+4. Generate appropriate node descriptions based on understanding of existing code
+5. Use add_nodes_to_metadata to create the new nodes
+
+RESPONSE GUIDELINES:
+- Always provide meaningful, helpful responses based on what you actually did
+- Use markdown formatting for better readability (headers, code blocks, lists, etc.)
+- If you searched for similar nodes, summarize what you found and how it influenced your decisions
+- If you created nodes, explain what you created and why using lists and descriptions
+- Never give generic responses - be specific about what you accomplished
+- Format code examples with ```python or ```bash code blocks
+- Use **bold** for important points and *italics* for emphasis
+- When describing search results, use **bold** for node names and descriptions
 
 CRITICAL RULES:
 1. You MUST ONLY generate file nodes (type: "file")
 2. You MUST ONLY generate Python files (.py extension)
 3. You do NOT generate process, data, api, or database nodes
 4. You do NOT generate code content for nodes
-5. Each file node must have:
+5. ALWAYS search existing nodes FIRST to understand the codebase and avoid duplicates
+6. Each file node must have:
    - id: Unique identifier (e.g., "node_1", "node_2", etc.)
    - type: MUST be "file"
    - description: Detailed description of what the file does
@@ -168,11 +276,21 @@ CRITICAL RULES:
    - x: X coordinate (100, 200, 300, etc.)
    - y: Y coordinate (100, 200, 300, etc.)
 
-6. fileName and description can be different - description explains what the file does, fileName is the actual file name
-7. Check for fileName conflicts - if a fileName already exists, use a different name
-8. ALL files must be Python files with .py extension
+7. fileName and description can be different - description explains what the file does, fileName is the actual file name
+8. Check for fileName conflicts - if a fileName already exists, use a different name
+9. ALL files must be Python files with .py extension
 
-CRITICAL: When the user asks you to create nodes, you MUST use the add_nodes_to_metadata tool. Do NOT just describe nodes in your response."""
+CRITICAL: When the user asks you to create nodes, you MUST:
+1. First search for similar nodes to understand context
+2. Then IMMEDIATELY call add_nodes_to_metadata tool with the nodes you want to create
+3. Do NOT just describe nodes in your response - you MUST actually create them using the tool
+
+EXAMPLE: If user says "create a hello world file", you should:
+1. Call search_similar_nodes with query "hello world"
+2. Call add_nodes_to_metadata with nodes=[{"id": "hello_world", "type": "file", "description": "A simple hello world Python file", "fileName": "hello.py", "x": 100, "y": 100}]
+3. Then explain what you created
+
+Do NOT just respond with text - you MUST use the tools to actually create the nodes."""
     }
     
     return client, agent_config
@@ -188,7 +306,10 @@ def generate_nodes_from_conversation(client, agent_config, conversation_history)
         conversation_history: List of messages in format [{"role": "user|assistant", "content": "..."}, ...]
     
     Returns:
-        List of generated nodes
+        Dict containing:
+        - nodes: List of generated nodes (if any)
+        - message: Agent's actual response message
+        - tool_results: Results from tool executions
     """
     try:
         # Load current metadata to provide context
@@ -222,13 +343,18 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
         assistant_message = ""
         tool_results = []
         
+        print(f"Processing response with {len(response.content)} content blocks")
+        
         for content_block in response.content:
+            print(f"Content block type: {content_block.type}")
             if content_block.type == "text":
                 assistant_message += content_block.text
+                print(f"Text content: {content_block.text[:100]}...")
             elif content_block.type == "tool_use":
                 # Handle tool calls
                 tool_name = content_block.name
                 tool_input = content_block.input
+                print(f"Tool call: {tool_name} with input: {tool_input}")
                 
                 if tool_name == "add_nodes_to_metadata":
                     # Execute the tool
@@ -253,6 +379,32 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
                         "type": "tool_result",
                         "tool_use_id": content_block.id,
                         "content": str(result)
+                    })
+                elif tool_name == "search_similar_nodes":
+                    # Execute the tool
+                    query = tool_input.get("query", "")
+                    n_results = tool_input.get("n_results", 5)
+                    result = search_similar_nodes(query, n_results)
+                    print(f"Search for '{query}': found {len(result.get('nodes', []))} similar nodes")
+                    
+                    # Add tool result to messages for Anthropic
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": content_block.id,
+                        "content": json.dumps(result, indent=2)
+                    })
+                elif tool_name == "search_related_files":
+                    # Execute the tool
+                    query = tool_input.get("query", "")
+                    n_results = tool_input.get("n_results", 5)
+                    result = search_related_files(query, n_results)
+                    print(f"Search for '{query}': found {len(result.get('files', []))} related files")
+                    
+                    # Add tool result to messages for Anthropic
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": content_block.id,
+                        "content": json.dumps(result, indent=2)
                     })
         
         # If there are tool results, send them back to Anthropic
@@ -282,19 +434,40 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
         
         # If nodes were generated via tool, return them
         if generated_nodes:
-            return generated_nodes
+            print(f"Returning generated nodes: {generated_nodes}")
+            return {
+                "nodes": generated_nodes,
+                "message": assistant_message,
+                "tool_results": tool_results
+            }
         
         # Otherwise, try to parse JSON from the assistant message
         try:
             import re
             json_match = re.search(r'\[.*\]', assistant_message, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                parsed_nodes = json.loads(json_match.group())
+                return {
+                    "nodes": parsed_nodes,
+                    "message": assistant_message,
+                    "tool_results": tool_results
+                }
         except json.JSONDecodeError:
             pass
-        return None
+        
+        # Return response even if no nodes were generated
+        print(f"Returning response with message: {assistant_message[:100]}...")
+        return {
+            "nodes": None,
+            "message": assistant_message,
+            "tool_results": tool_results
+        }
     except Exception as e:
         print(f"Error generating nodes: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return {
+            "nodes": None,
+            "message": f"I encountered an error while processing your request: {str(e)}",
+            "tool_results": []
+        }
