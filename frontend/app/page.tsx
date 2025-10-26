@@ -7,7 +7,7 @@ import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { Home, Sparkles } from "lucide-react"
+import { Home, Sparkles, Play, Square } from "lucide-react"
 import type { FileNode, NodeMetadata } from "@/lib/api"
 import { FileAPI } from "@/lib/api"
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels"
@@ -24,6 +24,14 @@ export default function NodeFlowPage() {
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isRunningTemplate, setIsRunningTemplate] = useState(false)
+  const [isTemplateRunning, setIsTemplateRunning] = useState(false)
+  
+  // Handler for adding terminal output (for file execution)
+  const handleAddTerminalOutput = (output: string) => {
+    console.log('handleAddTerminalOutput called in page component')
+    // This will be handled by the BottomDock component via window.addTerminalOutput
+  }
 
   // Poll for real-time output messages and metadata updates
   useEffect(() => {
@@ -97,6 +105,30 @@ export default function NodeFlowPage() {
     }
   }
 
+  const handleRunTemplate = async () => {
+    if (isRunningTemplate || isGenerating || isTemplateRunning) return
+    
+    setIsRunningTemplate(true)
+    try {
+      const result = await FileAPI.runTemplate()
+      if (!result.success) {
+        console.error('Failed to run template:', result.error)
+      } else {
+        // After running, mark template as running
+        setIsTemplateRunning(true)
+      }
+    } catch (error) {
+      console.error('Failed to run template:', error)
+    } finally {
+      setIsRunningTemplate(false)
+    }
+  }
+
+  const handleStopTemplate = async () => {
+    setIsTemplateRunning(false)
+    // TODO: Implement actual stop functionality if needed
+  }
+
   const handleMetadataUpdate = async () => {
     try {
       const updatedMetadata = await FileAPI.getMetadata()
@@ -152,6 +184,35 @@ export default function NodeFlowPage() {
                       </>
                     )}
                   </Button>
+                  {isTemplateRunning ? (
+                    <Button 
+                      onClick={handleStopTemplate}
+                      className="bg-red-600 hover:bg-red-700 text-white neu-raised-sm neu-hover neu-active"
+                      size="sm"
+                    >
+                      <Square className="w-4 h-4 mr-2" />
+                      Stop
+                    </Button>
+                  ) : (
+                    <Button 
+                      onClick={handleRunTemplate}
+                      disabled={isRunningTemplate || isGenerating}
+                      className="bg-green-600 hover:bg-green-700 text-white neu-raised-sm neu-hover neu-active disabled:opacity-50 disabled:cursor-not-allowed"
+                      size="sm"
+                    >
+                      {isRunningTemplate ? (
+                        <>
+                          <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Running...
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 mr-2" />
+                          Run
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button asChild variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
                     <Link href="/onboarding">
                       <Home className="w-4 h-4 mr-2" />
@@ -170,6 +231,7 @@ export default function NodeFlowPage() {
                 selectedNode={selectedNode}
                 onSelectNode={setSelectedNode}
                 onMetadataUpdate={setMetadata}
+                isRunning={isTemplateRunning}
               />
             </Panel>
 
@@ -177,7 +239,7 @@ export default function NodeFlowPage() {
 
             {/* Bottom Dock */}
             <Panel defaultSize={22} minSize={15} maxSize={40} className="min-h-0">
-              <BottomDock consoleMessages={consoleMessages} />
+              <BottomDock consoleMessages={consoleMessages} onAddTerminalOutput={handleAddTerminalOutput} />
             </Panel>
           </PanelGroup>
         </Panel>

@@ -9,7 +9,7 @@ import { X, FileText } from "lucide-react"
 interface FileNamingModalProps {
   isOpen: boolean
   onClose: () => void
-  onCreateFile: (fileName: string, fileType: string, description?: string) => void
+  onCreateFile: (fileName: string, fileType: string, description?: string, category?: string) => void
 }
 
 const fileTypeMap: Record<string, string> = {
@@ -96,7 +96,7 @@ export function FileNamingModal({ isOpen, onClose, onCreateFile }: FileNamingMod
       finalType = 'text'
     }
     
-    onCreateFile(finalFileName, finalType, description.trim() || undefined)
+    onCreateFile(finalFileName, finalType, description.trim() || undefined, "Files")
     onClose()
   }
 

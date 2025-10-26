@@ -363,6 +363,41 @@ Output ONLY the pure raw code with no formatting or markdown:"""
             output_logger.write_output(f"❌ ERROR generating {file_id}: {str(e)}", "ERROR")
             raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
     
+    async def generate_code_for_description(self, description: str, file_name: str) -> str:
+        """Generate code content from a description and file name."""
+        if not self.is_initialized():
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+        
+        # Create prompt for code generation
+        prompt = f"""Generate ONLY the raw code for "{file_name}" based on this description: "{description}"
+
+ABSOLUTELY NO MARKDOWN OR FORMATTING:
+- NO markdown code blocks (no triple backticks ```)
+- NO "Here is the code:" or similar text
+- NO explanations or comments outside the code
+- NO markdown headers, bullets, or formatting
+- ONLY return the raw, executable code content itself
+- NO text before or after the code
+
+Description: {description}
+File name: {file_name}
+
+Output ONLY the pure raw code with no formatting or markdown:"""
+        
+        # Send to Anthropic
+        response = self.client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=16000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        # Extract the generated code from the response
+        generated_code = ""
+        for block in response.content:
+            if block.type == "text":
+                generated_code += block.text
+        
+        return generated_code
 
     async def run_project(self) -> Dict[str, Any]:
         """Run the project by generating code for all node files based on metadata."""

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FolderOpen, Bot, FileText, RefreshCcw, CheckCircle2, Plus } from "lucide-react"
 import RaysBackground from "@/components/rays-background"
+import { TemplateSelectionModal } from "@/components/template-selection-modal"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import NodyInitial from "@/assets/nody_initial.png"
@@ -68,11 +69,11 @@ export default function OnboardingPage() {
   const [errorMessage, setErrorMessage] = useState("")
   const [isChatVisible, setIsChatVisible] = useState(true)
   const [initialFetchComplete, setInitialFetchComplete] = useState(false)
-  const [selectedFolderCount, setSelectedFolderCount] = useState<number | null>(null)
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false)
+  const [isLoadingTemplate, setIsLoadingTemplate] = useState(false)
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const sessionId = useMemo(() => createId(), [])
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -107,13 +108,32 @@ export default function OnboardingPage() {
   }, [])
 
   const handleChooseFolder = () => {
-    fileInputRef.current?.click()
+    setIsTemplateModalOpen(true)
   }
 
-  const handleFilesChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    setSelectedFolderCount(files.length)
+  const handleSelectTemplate = async (templateId: string) => {
+    setIsLoadingTemplate(true)
+    
+    try {
+      // Load the template from the backend
+      const result = await FileAPI.loadTemplate(templateId)
+      
+      if (!result.success) {
+        window.alert(result.error || "Failed to load template. Please try again.")
+        return
+      }
+      
+      // Close modal and navigate to main page
+      setIsTemplateModalOpen(false)
+      
+      // Navigate to main page
+      router.push("/")
+    } catch (error) {
+      console.error("Failed to load template:", error)
+      window.alert("Failed to load template. Please try again.")
+    } finally {
+      setIsLoadingTemplate(false)
+    }
   }
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
@@ -270,7 +290,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen relative flex flex-col bg-background text-foreground">
       <RaysBackground
         className="pointer-events-none absolute inset-0 z-0 opacity-30"
-        raysColor={{ mode: "multi", color1: "#FFFFFF", color2: "#6EA8FF" }}
+        raysColor={{ mode: "multi", color1: "#A855F7", color2: "#9333EA" }}
         intensity={30}
         rays={24}
         reach={32}
@@ -307,27 +327,15 @@ export default function OnboardingPage() {
           >
             <CardContent className="py-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
-                  <FolderOpen className="w-5 h-5 text-primary" />
+                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-purple-500/20 flex items-center justify-center shrink-0">
+                  <FolderOpen className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
                   <div className="text-base font-semibold">Open Existing Project</div>
                   <div className="text-xs text-muted-foreground">
-                    Load an existing project from your computer.
-                    {selectedFolderCount !== null && ` (${selectedFolderCount} file(s) selected)`}
+                    choose from pre-configured project templates to get started.
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  // @ts-expect-error - Non-standard but supported in Chromium-based browsers
-                  webkitdirectory=""
-                  multiple
-                  className="hidden"
-                  onChange={handleFilesChosen}
-                />
               </div>
             </CardContent>
           </Card>
@@ -347,8 +355,8 @@ export default function OnboardingPage() {
           >
             <CardContent className="py-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
-                  <Plus className="w-5 h-5 text-primary" />
+                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-purple-500/20 flex items-center justify-center shrink-0">
+                  <Plus className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
                   <div className="text-base font-semibold">Start with Empty Project</div>
@@ -370,8 +378,8 @@ export default function OnboardingPage() {
           <Card className="group neu-raised neu-hover neu-hover-strong neu-active hover-glow-primary bg-card/80 backdrop-blur border px-4 transition-all">
             <CardHeader className="gap-4">
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
-                  <Bot className="w-5 h-5 text-primary" />
+                <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-purple-500/20 flex items-center justify-center shrink-0">
+                  <Bot className="w-5 h-5 text-purple-400" />
                 </div>
                 <div>
                   <CardTitle className="text-base">Generate Project</CardTitle>
@@ -532,6 +540,13 @@ export default function OnboardingPage() {
           </Card>
         </div>
       </div>
+
+      <TemplateSelectionModal
+        isOpen={isTemplateModalOpen}
+        onClose={() => setIsTemplateModalOpen(false)}
+        onSelectTemplate={handleSelectTemplate}
+        isLoading={isLoadingTemplate}
+      />
     </div>
   )
 }

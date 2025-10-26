@@ -21,15 +21,65 @@ interface CommandHistory {
 
 interface BottomDockProps {
   consoleMessages?: ConsoleMessage[]
+  onAddTerminalOutput?: (output: string) => void
 }
 
-export function BottomDock({ consoleMessages = [] }: BottomDockProps) {
+export function BottomDock({ consoleMessages = [], onAddTerminalOutput }: BottomDockProps) {
   const allMessages = consoleMessages
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const terminalScrollRef = useRef<HTMLDivElement>(null)
   const [commandHistory, setCommandHistory] = useState<CommandHistory[]>([])
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true)
   const workspace = "nody" // You can make this dynamic if needed
+
+  // Handle terminal output from parent
+  useEffect(() => {
+    if (onAddTerminalOutput) {
+      const handleAddOutput = (output: string) => {
+        console.log('handleAddOutput called with:', output)
+        // Append to the last command entry's output
+        setCommandHistory(prev => {
+          console.log('Current history:', prev)
+          if (prev.length === 0) return prev
+          
+          const newHistory = [...prev]
+          const lastEntry = newHistory[newHistory.length - 1]
+          
+          // Append output to the last entry
+          if (lastEntry) {
+            newHistory[newHistory.length - 1] = {
+              ...lastEntry,
+              output: lastEntry.output ? `${lastEntry.output}\n${output}` : output
+            }
+          }
+          
+          console.log('New history:', newHistory)
+          return newHistory
+        })
+      }
+      // Store handler for parent to call
+      (window as any).addTerminalOutput = handleAddOutput
+      console.log('addTerminalOutput registered')
+      return () => {
+        delete (window as any).addTerminalOutput
+      }
+    }
+  }, [onAddTerminalOutput])
+
+  // Also expose a function to add commands
+  useEffect(() => {
+    const handleAddCommand = (command: string) => {
+      setCommandHistory(prev => [...prev, {
+        command: command,
+        output: undefined
+      }])
+    }
+    // Store handler for parent to call
+    (window as any).addTerminalCommand = handleAddCommand
+    return () => {
+      delete (window as any).addTerminalCommand
+    }
+  }, [])
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

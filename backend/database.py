@@ -123,7 +123,8 @@ class FileDatabase:
     def save_metadata(self, metadata: Dict[str, Any]):
         """Save metadata to JSON file."""
         try:
-            self.refresh_files_from_metadata(metadata)
+            # Don't refresh here - it causes files to be deleted when saving partial metadata
+            # The refresh_files_from_metadata will be called by the polling/pulling process instead
             METADATA_FILE.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error saving metadata: {e}")
@@ -167,7 +168,12 @@ class FileDatabase:
             if existing_file.filePath == file_create_data["filePath"]:
                 raise ValueError(f"File with name '{file_create_data['filePath']}' already exists")
         
-        file_id = str(len(self.files_db) + 1)
+        # Generate a unique ID by finding the next available number
+        existing_ids = set(int(fid) for fid in self.files_db.keys() if fid.isdigit())
+        if existing_ids:
+            file_id = str(max(existing_ids) + 1)
+        else:
+            file_id = "1"
 
         new_file = FileNode(
             id=file_id,
@@ -241,6 +247,13 @@ class FileDatabase:
         existing_category = metadata.get(file_id, {}).get("category")
         self.update_node_metadata(file_id, "file", description, node.x, node.y, category=existing_category)
     
+    def update_file_status(self, file_id: str, status: str):
+        """Update file node status."""
+        if file_id not in self.files_db:
+            raise ValueError("File not found")
+        
+        self.files_db[file_id].status = status
+    
     def delete_file(self, file_id: str):
         """Delete a file node."""
         # Check if file exists in metadata first
@@ -268,8 +281,14 @@ class FileDatabase:
 class OutputLogger:
     """Manages real-time output messages."""
     
-    @staticmethod
-    def write_output(message: str, level: str = "INFO"):
+    def __init__(self):
+        self.output_file = OUTPUT_FILE
+    
+    def set_output_file(self, output_file: Path):
+        """Set the output file to write to."""
+        self.output_file = output_file
+    
+    def write_output(self, message: str, level: str = "INFO"):
         """Write a message to the output file for real-time progress."""
         timestamp = datetime.now().strftime("%H:%M:%S")
         output_entry = {
@@ -279,9 +298,9 @@ class OutputLogger:
         }
         
         # Load existing output or create new
-        if OUTPUT_FILE.exists():
+        if self.output_file.exists():
             try:
-                output_data = json.loads(OUTPUT_FILE.read_text(encoding='utf-8'))
+                output_data = json.loads(self.output_file.read_text(encoding='utf-8'))
             except (json.JSONDecodeError, IOError):
                 output_data = {"messages": []}
         else:
@@ -296,24 +315,22 @@ class OutputLogger:
         
         # Write back to file
         try:
-            OUTPUT_FILE.write_text(json.dumps(output_data, indent=2, ensure_ascii=False), encoding='utf-8')
+            self.output_file.write_text(json.dumps(output_data, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error writing output: {e}")
     
-    @staticmethod
-    def clear_output():
+    def clear_output(self):
         """Clear the output file."""
         try:
-            OUTPUT_FILE.write_text(json.dumps({"messages": []}, indent=2, ensure_ascii=False), encoding='utf-8')
+            self.output_file.write_text(json.dumps({"messages": []}, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error clearing output: {e}")
     
-    @staticmethod
-    def get_output() -> Dict[str, Any]:
+    def get_output(self) -> Dict[str, Any]:
         """Get current output messages."""
-        if OUTPUT_FILE.exists():
+        if self.output_file.exists():
             try:
-                return json.loads(OUTPUT_FILE.read_text(encoding='utf-8'))
+                return json.loads(self.output_file.read_text(encoding='utf-8'))
             except (json.JSONDecodeError, IOError):
                 return {"messages": []}
         return {"messages": []}
