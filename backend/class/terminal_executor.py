@@ -20,11 +20,13 @@ class TerminalExecutor:
             dict with success, stdout, stderr, return_code
         """
         try:
-            # SECURITY: Ensure workspace is in git directory or temporary workspace
-            if 'git' not in workspace_path and 'nody_terminal_' not in workspace_path:
+            # SECURITY: Ensure workspace is in git directory, canvas directory, or temporary workspace
+            if ('git' not in workspace_path and 
+                'nody_terminal_' not in workspace_path and 
+                'canvas' not in workspace_path):
                 return {
                     "success": False,
-                    "error": "Workspace must be in git directory or temporary workspace",
+                    "error": "Workspace must be in git directory, canvas directory, or temporary workspace",
                     "stdout": "",
                     "stderr": "",
                     "return_code": -1
