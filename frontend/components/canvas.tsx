@@ -103,9 +103,12 @@ type FileNodeData = {
   isModified?: boolean
   parentFolder?: string | null
   generating: boolean
+  running: boolean
   description?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
+  onRun?: (id: string) => void
+  onStop?: (id: string) => void
   onDelete: (id: string) => void
 }
 
@@ -188,6 +191,26 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
           >
             Open
           </Button>
+          {hasExistingContent && !data.running && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-green-600"
+              onClick={() => data.onRun?.(id)}
+            >
+              Run
+            </Button>
+          )}
+          {hasExistingContent && data.running && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-red-600"
+              onClick={() => data.onStop?.(id)}
+            >
+              Stop
+            </Button>
+          )}
           {!hasExistingContent && data.description && data.description.trim() && (
             <Button
               size="sm"
@@ -220,12 +243,8 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
 
   return (
     <div
-      className={`relative rounded-2xl border-2 backdrop-blur-sm transition-all duration-200 ${
-        data.isHovered 
-          ? "border-primary bg-primary/25 shadow-lg shadow-primary/20" 
-          : selected 
-            ? "border-primary/60 bg-primary/10" 
-            : "border-primary/30 bg-primary/10"
+      className={`relative rounded-2xl border-2 bg-primary/10 transition-all ${
+        selected ? "border-primary/60" : "border-primary/30"
       }`}
       style={{ width: data.width, height }}
     >
@@ -313,6 +332,7 @@ const nodeTypes = {
 function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
   const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
+  const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
   const [metadataRecords, setMetadataRecords] = useState<Record<string, NodeMetadata>>({})
   const [folderRecords, setFolderRecords] = useState<ApiFolderNode[]>([])
@@ -361,16 +381,63 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   }, [onNodesChangeBase, flowNodes])
   const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
+  const [runningNodeIds, setRunningNodeIds] = useState<Set<string>>(new Set())
   const [expandedNode, setExpandedNode] = useState<string | null>(null)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null)
   const refreshInFlight = useRef(false)
   const { screenToFlowPosition } = useReactFlow()
+  
+  // Store EventSource references to close them when stopping files
+  const eventSourcesRef = useRef<Map<string, EventSource>>(new Map())
 
   useEffect(() => {
     setSelectedNodeId(selectedNode)
   }, [selectedNode])
+
+  // Poll file statuses to keep running state in sync
+  useEffect(() => {
+    const checkRunningFiles = async () => {
+      if (fileRecords.length === 0) return
+      
+      // Check status of all files
+      const statusChecks = fileRecords.map(file => FileAPI.getFileStatus(file.id))
+      const statuses = await Promise.all(statusChecks)
+      
+      const newRunningIds = new Set<string>()
+      statuses.forEach((status, index) => {
+        if (status.running) {
+          newRunningIds.add(fileRecords[index].id)
+        }
+      })
+      
+      // Only update if changed
+      setRunningNodeIds(prev => {
+        const prevArray = Array.from(prev).sort()
+        const newArray = Array.from(newRunningIds).sort()
+        if (JSON.stringify(prevArray) !== JSON.stringify(newArray)) {
+          return newRunningIds
+        }
+        return prev
+      })
+    }
+    
+    // Check immediately on mount
+    checkRunningFiles()
+    
+    // Then poll every 2 seconds
+    const interval = setInterval(checkRunningFiles, 2000)
+    
+    return () => {
+      clearInterval(interval)
+      // Clean up all EventSources on unmount
+      eventSourcesRef.current.forEach(eventSource => {
+        eventSource.close()
+      })
+      eventSourcesRef.current.clear()
+    }
+  }, [fileRecords])
 
   useEffect(() => {
     let mounted = true
@@ -575,6 +642,103 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     [],
   )
 
+  const handleRunFile = useCallback(
+    async (id: string) => {
+      // Add to running set
+      setRunningNodeIds(prev => new Set(prev).add(id))
+      
+      try {
+        const result = await FileAPI.runFile(
+          id,
+          // onOutput callback
+          (output) => {
+            console.log('File output:', output)
+            // Output is displayed in terminal via output_logger on backend
+          },
+          // onComplete callback
+          (success, returnCode) => {
+            if (success) {
+              toast.success(`File executed successfully`)
+            } else {
+              toast.error(`File execution failed (exit code: ${returnCode})`)
+            }
+            // Remove from running set
+            setRunningNodeIds(prev => {
+              const newSet = new Set(prev)
+              newSet.delete(id)
+              return newSet
+            })
+            // Clean up EventSource
+            const eventSource = eventSourcesRef.current.get(id)
+            if (eventSource) {
+              eventSource.close()
+              eventSourcesRef.current.delete(id)
+            }
+          }
+        )
+        
+        if (!result.success) {
+          toast.error(`Failed to start file: ${result.error}`)
+          // Remove from running set on error
+          setRunningNodeIds(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(id)
+            return newSet
+          })
+        } else {
+          toast.info(`File started - check terminal for output`)
+          // Store EventSource reference
+          if (result.eventSource) {
+            eventSourcesRef.current.set(id, result.eventSource)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to run file:", error)
+        toast.error("Failed to run file")
+        // Remove from running set on error
+        setRunningNodeIds(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(id)
+          return newSet
+        })
+      }
+    },
+    [],
+  )
+
+  const handleStopFile = useCallback(
+    async (id: string) => {
+      try {
+        // Show immediate feedback that stop was registered
+        toast.info("Stopping file...")
+        
+        // Close EventSource first
+        const eventSource = eventSourcesRef.current.get(id)
+        if (eventSource) {
+          eventSource.close()
+          eventSourcesRef.current.delete(id)
+        }
+        
+        const result = await FileAPI.stopFile(id)
+        if (result.success) {
+          toast.success(`File stopped successfully`)
+          // Remove from running set
+          setRunningNodeIds(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(id)
+            return newSet
+          })
+        } else {
+          toast.error(`Failed to stop file: ${result.error}`)
+        }
+      } catch (error) {
+        console.error("Failed to stop file:", error)
+        toast.error("Failed to stop file")
+      }
+    },
+    [],
+  )
+
   const handleFileSave = useCallback(async (nodeId: string, content: string) => {
     try {
       await FileAPI.updateFileContent(nodeId, content)
@@ -664,7 +828,20 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
     const appendFileNode = (record: ApiFileNode) => {
       const meta = metadataRecords[record.id]
-      const position = meta ? { x: meta.x ?? 120, y: meta.y ?? 120 } : { x: 120, y: 120 }
+      let position = meta ? { x: meta.x ?? 120, y: meta.y ?? 120 } : { x: 120, y: 120 }
+      
+      // If the file belongs to a folder, convert absolute position to relative position
+      if (record.parentFolder) {
+        const parentFolder = folderRecords.find(f => f.id === record.parentFolder)
+        if (parentFolder) {
+          // Convert absolute position to relative to parent folder
+          position = {
+            x: position.x - parentFolder.x,
+            y: position.y - parentFolder.y
+          }
+        }
+      }
+      
       nodes.push({
         id: record.id,
         type: "fileNode",
@@ -680,9 +857,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isModified: record.isModified,
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
+          running: runningNodeIds.has(record.id),
           description: meta?.description,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
+          onRun: handleRunFile,
+          onStop: handleStopFile,
           onDelete: handleFileDelete,
         },
         style: { width: NODE_WIDTH, zIndex: 2 },
@@ -690,7 +870,6 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         selectable: true,
         connectable: true,
         parentId: record.parentFolder ?? undefined,
-        extent: record.parentFolder ? "parent" : undefined,
       })
     }
 
@@ -741,8 +920,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     folderRecords,
     metadataRecords,
     generatingNodeId,
+    runningNodeIds,
     handleFileDelete,
     handleGenerateCode,
+    handleRunFile,
     openEditor,
     customGenericNodes,
     selectedNodeId,
@@ -760,8 +941,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         data: { type: edge.type ?? "depends_on", description: edge.description },
         type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-        zIndex: 10,
-        style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
+        style: {
+          pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
+          cursor: "pointer",
+          strokeWidth: 2,
+        },
+        zIndex: 1000,
       }
     })
   }, [edgeRecords])
@@ -914,7 +1099,16 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       
       if (node.type === "fileNode" && isFileNodeData(node.data)) {
         const fileId = node.id
-        const { x, y } = node.position
+        let { x, y } = node.position
+
+        // If the file has a parent, convert relative position to absolute
+        if (node.data.parentFolder) {
+          const parentFolder = folderRecords.find(f => f.id === node.data.parentFolder)
+          if (parentFolder) {
+            x = x + parentFolder.x
+            y = y + parentFolder.y
+          }
+        }
 
         try {
           await FileAPI.updateFilePosition(fileId, x, y)
@@ -952,6 +1146,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       if (node.type === "folderNode") {
         const folderId = node.id
         try {
+          // Get the old folder position before updating
+          const oldFolder = folderRecords.find(f => f.id === folderId)
+          
           // Update folder position and dimensions if resized
           const updates: any = { x: node.position.x, y: node.position.y }
           if (node.style?.width) {
@@ -961,6 +1158,27 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             updates.height = node.style.height
           }
           await FileAPI.updateFolder(folderId, updates)
+          
+          // Update all child file positions to maintain their relative positions
+          if (oldFolder) {
+            const deltaX = node.position.x - oldFolder.x
+            const deltaY = node.position.y - oldFolder.y
+            
+            // Find all files that belong to this folder
+            const childFiles = fileRecords.filter(f => f.parentFolder === folderId)
+            
+            // Update each child file's absolute position
+            for (const child of childFiles) {
+              try {
+                const newAbsoluteX = child.x + deltaX
+                const newAbsoluteY = child.y + deltaY
+                await FileAPI.updateFilePosition(child.id, newAbsoluteX, newAbsoluteY)
+              } catch (error) {
+                console.error(`Failed to update child file ${child.id}:`, error)
+              }
+            }
+          }
+          
           await refreshMetadata()
         } catch (error) {
           console.error("Failed to update folder:", error)
@@ -988,8 +1206,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       const nodeId = params.nodes?.[0]?.id ?? null
       setSelectedNodeId(nodeId)
       onSelectNode(nodeId)
+      
+      // Track selected edges
+      const edgeIds = params.edges?.map(e => e.id) || []
+      setSelectedEdges(edgeIds)
     },
-    [onSelectNode],
+    [onSelectNode, setSelectedEdges],
   )
 
   const handlePaneClick = useCallback(() => {
@@ -997,14 +1219,36 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     onSelectNode(null)
   }, [onSelectNode])
 
+  // Handle keyboard events for deleting edges
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Delete" && selectedEdges.length > 0) {
+        const edgesToDelete = selectedEdges
+          .map(id => flowEdges.find(e => e.id === id))
+          .filter((edge): edge is Edge => edge !== undefined)
+        
+        if (edgesToDelete.length > 0) {
+          handleEdgesDelete(edgesToDelete)
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [selectedEdges, flowEdges, handleEdgesDelete])
+
   const defaultEdgeOptions = useMemo(
     () => ({
       type: "smoothstep" as const,
       animated: false,
       deletable: true,
       markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-      style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
-      zIndex: 10,
+      style: { 
+        strokeWidth: 2,
+        pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
+        cursor: "pointer"
+      },
+      zIndex: 1000,
     }),
     [],
   )

@@ -49,9 +49,10 @@ class FileDatabase:
 
     def _create_or_update_file_node(self, node_id: str, node_meta: Dict[str, Any]):
         """Ensure an in-memory FileNode exists for metadata entry."""
-        file_name = node_meta.get("fileName") or f"{node_id}.txt"
-        if "fileName" not in node_meta:
-            node_meta["fileName"] = file_name
+        file_name = node_meta.get("fileName")
+        if not file_name:
+            # Don't create files for metadata entries without explicit file names
+            return
 
         file_path = self._resolve_file_path(file_name, node_meta)
         try:

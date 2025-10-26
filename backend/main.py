@@ -13,8 +13,7 @@ from datetime import datetime
 import subprocess
 import threading
 from dotenv import load_dotenv
-from letta_client import Letta
-from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
+from agents import create_node_generation_agent, generate_nodes_from_conversation
 
 from config import API_TITLE, API_VERSION, CORS_ORIGINS, EDGES_FILE, METADATA_FILE, CANVAS_DIR, BACKEND_ROOT
 from models import (
@@ -49,8 +48,6 @@ app.add_middleware(
 
 
 # Agent setup
-_client = None
-_agent = None
 _node_gen_client = None
 _node_gen_agent_config = None
 
@@ -58,15 +55,11 @@ _node_gen_agent_config = None
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global _client, _agent, _node_gen_client, _node_gen_agent_config
+    global _node_gen_client, _node_gen_agent_config
     try:
         # Initialize code generation service
         await code_generation_service.initialize()
         print("Code generation service initialized")
-        
-        # Initialize Letta agents
-        _client, _agent = create_file_system_agent()
-        print(f"Letta agent initialized with ID: {_agent.id}")
         
         # Initialize node generation agent
         _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
@@ -76,35 +69,61 @@ async def startup_event():
     except Exception as e:
         print(f"Failed to initialize services: {e}")
         print("Make sure you have:")
-        print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
-        print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
-        print("3. Set ANTHROPIC_API_KEY environment variable")
+        print("1. Set ANTHROPIC_API_KEY environment variable")
 
 
 # ==================== FILE OPERATIONS ====================
 
 def create_empty_files_for_metadata():
-    """Create empty Python files for all nodes in metadata that don't have files yet"""
+    """Create empty files for all nodes in metadata that don't have files yet"""
     try:
-        metadata = load_metadata()
+        metadata = file_db.load_metadata()
         created_files = []
         
         for node_id, node_meta in metadata.items():
             if node_meta.get("type") == "file":
                 file_name = node_meta.get("fileName", f"file_{node_id}.py")
-                file_path = os.path.join(CANVAS_DIR, file_name)
+                file_path = os.path.join(CANVAS_DIR, "nodes", file_name)
                 
-                # Create empty file if it doesn't exist
+                # Create completely empty file if it doesn't exist
                 if not os.path.exists(file_path):
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    # Just create an empty file
                     with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write("# Empty Python file\n")
+                        f.write("")  # Completely empty
                     created_files.append(file_name)
                     print(f"Created empty file: {file_name}")
         
         return created_files
     except Exception as e:
-        print(f"Error creating empty files: {e}")
+        print(f"Error creating files: {e}")
         return []
+
+async def generate_node_code(node: dict):
+    """Generate actual code for a node using AI based on its description"""
+    try:
+        file_name = node.get("fileName", f"file_{node.get('id')}.py")
+        description = node.get("description", "")
+        
+        # Extract just the filename without any path (to avoid nesting issues)
+        base_file_name = os.path.basename(file_name)
+        
+        # Use the code generation service to generate code
+        code_content = await code_generation_service.generate_code_for_description(description, base_file_name)
+        
+        # Write code to file at the correct location based on its folder
+        # Remove leading "nodes/" from file_name if present to avoid canvas/nodes/nodes/
+        clean_file_name = file_name
+        if file_name.startswith("nodes/"):
+            clean_file_name = file_name[len("nodes/"):]
+        file_path = os.path.join(CANVAS_DIR, "nodes", clean_file_name)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(code_content)
+        print(f"Generated code for {file_name}")
+    except Exception as e:
+        print(f"Error generating code for {node.get('id')}: {e}")
+
 
 @app.get("/")
 async def root():
@@ -150,6 +169,19 @@ async def create_file(file_create: FileCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@app.get("/files/{file_id}/status")
+async def get_file_status(file_id: str):
+    """Get the status of a specific file node"""
+    file_node = file_db.get_file(file_id)
+    if not file_node:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Return a simple status response
+    return {
+        "status": file_node.status or "idle",
+        "running": file_node.status == "running" if file_node.status else False
+    }
 
 @app.delete("/files/{file_id}")
 async def delete_file(file_id: str):
@@ -253,7 +285,7 @@ async def create_folder(folder_create: FolderCreate):
         folder_id = f"folder_{len([k for k in metadata.keys() if k.startswith('folder_')]) + 1}"
         
         # Create actual directory in canvas/nodes
-        folder_path = CANVAS_DIR / folder_create.name
+        folder_path = CANVAS_DIR / "nodes" / folder_create.name
         folder_path.mkdir(parents=True, exist_ok=True)
         print(f"Created directory: {folder_path}")
         
@@ -327,7 +359,7 @@ async def delete_folder(folder_id: str):
         # Get folder path and delete directory if it exists
         folder_name = metadata[folder_id].get("name")
         if folder_name:
-            folder_path = CANVAS_DIR / folder_name
+            folder_path = CANVAS_DIR / "nodes" / folder_name
             if folder_path.exists() and folder_path.is_dir():
                 import shutil
                 shutil.rmtree(folder_path)
@@ -377,11 +409,11 @@ async def move_file_to_folder(file_id: str, folder_id: Optional[str] = None):
             # Get old folder path
             old_folder_id = metadata[file_id].get("parentFolder")
             old_folder_name = metadata[old_folder_id].get("name") if old_folder_id and old_folder_id in metadata else None
-            old_file_path = CANVAS_DIR / old_folder_name / base_file_name if old_folder_name else CANVAS_DIR / base_file_name
+            old_file_path = CANVAS_DIR / "nodes" / old_folder_name / base_file_name if old_folder_name else CANVAS_DIR / "nodes" / base_file_name
             
             # Get new folder path
             new_folder_name = metadata[folder_id].get("name") if folder_id and folder_id in metadata else None
-            new_file_path = CANVAS_DIR / new_folder_name / base_file_name if new_folder_name else CANVAS_DIR / base_file_name
+            new_file_path = CANVAS_DIR / "nodes" / new_folder_name / base_file_name if new_folder_name else CANVAS_DIR / "nodes" / base_file_name
             
             # Move the actual file if it exists
             if old_file_path.exists() and old_file_path != new_file_path:
@@ -609,28 +641,14 @@ async def prepare_project_workspace():
         raise HTTPException(status_code=500, detail=f"Error preparing project: {str(e)}")
 
 
-# ==================== LETTA AGENT OPERATIONS ====================
+# ==================== ANTHROPIC AGENT OPERATIONS ====================
 
-@app.get("/letta/health")
-async def letta_health():
-    """Health check for Letta agent"""
+@app.get("/anthropic/health")
+async def anthropic_health():
+    """Health check for Anthropic agent"""
     return {
-        "status": "healthy" if code_generation_service.is_initialized() else "not_initialized",
-        "agent_id": code_generation_service.agent.id if code_generation_service.is_initialized() else None
+        "status": "healthy" if code_generation_service.is_initialized() else "not_initialized"
     }
-
-
-@app.post("/letta/chat", response_model=AgentChatResponse)
-async def letta_chat(request: AgentChatRequest):
-    """Send a message to the Letta agent."""
-    try:
-        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-        result = await code_generation_service.chat_with_agent(messages)
-        return AgentChatResponse(**result)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
 
 # Node generation agent chat endpoint
@@ -684,7 +702,7 @@ async def chat_nodes(request: NodeChatRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
 
-@app.post("/letta/generate-code")
+@app.post("/anthropic/generate-code")
 async def generate_code_from_metadata():
     """Generate code for all files based on metadata.json descriptions."""
     try:
@@ -696,15 +714,54 @@ async def generate_code_from_metadata():
         raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
 
 
-@app.get("/letta/info")
-async def get_letta_info():
-    """Get information about the Letta agent"""
+class GenerateFastAPIGetRequest(BaseModel):
+    endpoint_path: str
+    description: str
+
+class GenerateFastAPIPostRequest(BaseModel):
+    endpoint_path: str
+    description: str
+
+class EndpointCodeResponse(BaseModel):
+    code: str
+    endpoint_path: str
+    method: str
+
+@app.post("/api/generate-fastapi-get", response_model=EndpointCodeResponse)
+async def generate_fastapi_get_endpoint(request: GenerateFastAPIGetRequest):
+    """Generate a FastAPI GET endpoint code."""
     try:
-        return code_generation_service.get_agent_info()
+        code = await code_generation_service.generate_fastapi_get_endpoint(
+            endpoint_path=request.endpoint_path,
+            description=request.description
+        )
+        return EndpointCodeResponse(
+            code=code,
+            endpoint_path=request.endpoint_path,
+            method="GET"
+        )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting agent info: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating GET endpoint: {str(e)}")
+
+@app.post("/api/generate-fastapi-post", response_model=EndpointCodeResponse)
+async def generate_fastapi_post_endpoint(request: GenerateFastAPIPostRequest):
+    """Generate a FastAPI POST endpoint code."""
+    try:
+        code = await code_generation_service.generate_fastapi_post_endpoint(
+            endpoint_path=request.endpoint_path,
+            description=request.description
+        )
+        return EndpointCodeResponse(
+            code=code,
+            endpoint_path=request.endpoint_path,
+            method="POST"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating POST endpoint: {str(e)}")
 
 
 # ==================== PROJECT EXECUTION ====================
