@@ -241,6 +241,13 @@ class FileDatabase:
         existing_category = metadata.get(file_id, {}).get("category")
         self.update_node_metadata(file_id, "file", description, node.x, node.y, category=existing_category)
     
+    def update_file_status(self, file_id: str, status: str):
+        """Update file node status."""
+        if file_id not in self.files_db:
+            raise ValueError("File not found")
+        
+        self.files_db[file_id].status = status
+    
     def delete_file(self, file_id: str):
         """Delete a file node."""
         # Check if file exists in metadata first

@@ -24,6 +24,12 @@ export default function NodeFlowPage() {
   const [metadata, setMetadata] = useState<Record<string, NodeMetadata>>({})
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  
+  // Handler for adding terminal output (for file execution)
+  const handleAddTerminalOutput = (output: string) => {
+    console.log('handleAddTerminalOutput called in page component')
+    // This will be handled by the BottomDock component via window.addTerminalOutput
+  }
 
   // Poll for real-time output messages and metadata updates
   useEffect(() => {
@@ -177,7 +183,7 @@ export default function NodeFlowPage() {
 
             {/* Bottom Dock */}
             <Panel defaultSize={22} minSize={15} maxSize={40} className="min-h-0">
-              <BottomDock consoleMessages={consoleMessages} />
+              <BottomDock consoleMessages={consoleMessages} onAddTerminalOutput={handleAddTerminalOutput} />
             </Panel>
           </PanelGroup>
         </Panel>

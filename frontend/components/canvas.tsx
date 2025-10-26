@@ -820,12 +820,38 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       setRunningNodeIds(prev => new Set(prev).add(id))
       
       try {
+        // Get file info to construct the command
+        const fileRecord = fileRecords.find(f => f.id === id)
+        if (fileRecord && fileRecord.filePath && fileRecord.fileType) {
+          // Construct the command based on file type
+          let command = ""
+          if (fileRecord.fileType === "python") {
+            command = `python ${fileRecord.filePath}`
+          } else if (fileRecord.fileType === "javascript") {
+            command = `node ${fileRecord.filePath}`
+          } else {
+            command = fileRecord.filePath
+          }
+          
+          // Add the command to the terminal
+          if ((window as any).addTerminalCommand) {
+            (window as any).addTerminalCommand(command)
+          }
+        }
+        
         const result = await FileAPI.runFile(
           id,
           // onOutput callback
           (output) => {
             console.log('File output:', output)
-            // Output is displayed in terminal via output_logger on backend
+            // Send output to the terminal component
+            const addTerminalOutput = (window as any).addTerminalOutput
+            if (addTerminalOutput && typeof addTerminalOutput === 'function') {
+              console.log('Calling addTerminalOutput with:', output)
+              addTerminalOutput(output)
+            } else {
+              console.warn('addTerminalOutput not available or not a function')
+            }
           },
           // onComplete callback
           (success, returnCode) => {
@@ -875,7 +901,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         })
       }
     },
-    [],
+    [fileRecords],
   )
 
   const handleStopFile = useCallback(

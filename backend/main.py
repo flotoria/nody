@@ -194,6 +194,96 @@ async def delete_file(file_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/files/{file_id}/run")
+async def run_file_stream(file_id: str):
+    """Stream file execution output via Server-Sent Events"""
+    import subprocess
+    import asyncio
+    from fastapi.responses import StreamingResponse
+    
+    file_node = file_db.get_file(file_id)
+    if not file_node:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Validate file has required attributes
+    if not file_node.filePath:
+        raise HTTPException(status_code=400, detail="File path not set")
+    
+    # Update status to running
+    try:
+        file_db.update_file_status(file_id, "running")
+    except:
+        pass  # Ignore if update fails
+    
+    async def generate():
+        process = None
+        try:
+            # Get the file path
+            file_path = CANVAS_DIR / file_node.filePath
+            
+            # Determine the command based on file type
+            if file_node.fileType == "python":
+                cmd = ["python", str(file_path)]
+            elif file_node.fileType == "javascript":
+                cmd = ["node", str(file_path)]
+            else:
+                cmd = [str(file_path)]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=str(CANVAS_DIR)
+            )
+            
+            # Stream output
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                
+                output = line.decode('utf-8', errors='replace').strip()
+                yield f"data: {json.dumps({'output': output, 'done': False})}\n\n"
+            
+            # Wait for process to complete
+            return_code = await process.wait()
+            
+            # Send completion event
+            yield f"data: {json.dumps({'success': return_code == 0, 'return_code': return_code, 'done': True})}\n\n"
+            
+            # Update status
+            try:
+                file_db.update_file_status(file_id, "idle")
+            except:
+                pass
+                
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+            try:
+                file_db.update_file_status(file_id, "idle")
+            except:
+                pass
+        finally:
+            if process:
+                try:
+                    process.kill()
+                except:
+                    pass
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@app.post("/files/{file_id}/stop")
+async def stop_file_execution(file_id: str):
+    """Stop running file execution"""
+    # This is a simple implementation - in production you'd want to track and kill the process
+    try:
+        file_db.update_file_status(file_id, "idle")
+        return {"message": "File execution stopped", "success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @app.post("/canvas/clear")
 async def clear_canvas():
     """Clear the entire canvas - all files, metadata, and edges"""

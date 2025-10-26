@@ -416,9 +416,12 @@ export class FileAPI {
       
       eventSource.onmessage = (event) => {
         try {
+          console.log('SSE message received:', event.data)
           const data = JSON.parse(event.data)
+          console.log('Parsed SSE data:', data)
           
           if (data.output && onOutput) {
+            console.log('Calling onOutput with:', data.output)
             onOutput(data.output)
           }
           
@@ -447,6 +450,10 @@ export class FileAPI {
           onComplete(false)
         }
         eventSource.close()
+      }
+      
+      eventSource.onopen = () => {
+        console.log('EventSource opened successfully')
       }
       
       return { success: true, eventSource }
