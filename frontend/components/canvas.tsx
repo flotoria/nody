@@ -40,10 +40,9 @@ import {
   type FolderNodeData,
   type GenericNodeData,
 } from "./canvas/node-components"
-import { AnimatedEdge } from "./canvas/edge-components"
 import { useCanvasData, useModalState } from "./canvas/hooks"
 import { NODE_WIDTH, NODE_HEIGHT, FOLDER_HEADER_HEIGHT, FOLDER_COLLAPSED_HEIGHT } from "./canvas/utils"
-import type { NodeTypes, EdgeTypes } from "reactflow"
+import type { NodeTypes } from "reactflow"
 
 interface CanvasProps {
   selectedNode: string | null
@@ -85,13 +84,9 @@ const nodeTypes = {
   genericNode: GenericNodeComponent,
 } satisfies NodeTypes
 
-const edgeTypes = {
-  animated: AnimatedEdge,
-} satisfies EdgeTypes
-
 const isFileNodeData = (data: CanvasNodeData): data is FileNodeData => data.kind === "file"
 
-function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate, isRunning = false }: CanvasProps) {
+function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate, isRunning }: CanvasProps) {
   const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [selectedEdges, setSelectedEdges] = useState<string[]>([])
@@ -438,6 +433,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
           running: runningNodeIds.has(record.id),
+          isRunning: isRunning || false,
           description: meta?.description,
           category: record.category || meta?.category,
           onOpen: openEditor,
@@ -469,6 +465,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isExpanded: folder.isExpanded,
           containedFiles: folder.containedFiles,
           isHovered: hoveredFolderId === folder.id,
+          isRunning: isRunning || false,
           onDelete: handleFolderDelete,
         },
         draggable: true,
@@ -479,7 +476,13 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     }
 
     for (const generic of customGenericNodes) {
-      nodes.push(generic)
+      nodes.push({
+        ...generic,
+        data: {
+          ...generic.data,
+          isRunning: isRunning || false,
+        }
+      })
     }
 
     const selection = selectedNodeId ?? null
@@ -488,7 +491,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       selected: selection !== null && node.id === selection,
     }))
   }, [
-    fileRecords, folderRecords, metadataRecords, generatingNodeId, runningNodeIds,
+    fileRecords, folderRecords, metadataRecords, generatingNodeId, runningNodeIds, isRunning,
     handleFileDelete, handleGenerateCode, handleRunFile, handleStopFile, openEditor,
     customGenericNodes, selectedNodeId, hoveredFolderId, handleFolderDelete
   ])
@@ -502,13 +505,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         target: edge.to,
         label: typeLabel,
         data: { type: edge.type ?? "depends_on", description: edge.description },
-        type: "animated",
+        type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
         style: {
           pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
           cursor: "pointer",
           strokeWidth: 2,
-          stroke: '#a855f7',
         },
         zIndex: 1000,
       }
@@ -932,7 +934,6 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             minZoom={0.2}
             maxZoom={2.5}
             nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
             defaultEdgeOptions={defaultEdgeOptions}
             className="bg-background canvas-flow"
             connectionMode={ConnectionMode.Loose}
