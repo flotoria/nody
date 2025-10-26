@@ -31,9 +31,8 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
-# Letta Configuration
-LETTA_API_KEY = os.environ.get("LETTA_API_KEY")
-LETTA_BASE_URL = os.environ.get("LETTA_BASE_URL", "http://localhost:8283")
+# Anthropic Configuration
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 # System Prompts
 ONBOARDING_SYSTEM_PROMPT = """
@@ -79,7 +78,7 @@ Guidelines:
 - If the user clearly signals they are finished (e.g., "done", "build it now", "generate the spec"), stop asking follow-up questions, make reasonable assumptions for any remaining gaps, set status to "ready", clear missing_information, and return the best project_spec you can.
 """.strip()
 
-LETTA_METADATA_SYSTEM_PROMPT = """
+METADATA_SYSTEM_PROMPT = """
 You are Nody's workspace architect. Using a confirmed project specification, design the canvas workspace.
 
 Respond ONLY with minified JSON (no markdown, no commentary) that includes these keys:

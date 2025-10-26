@@ -68,6 +68,17 @@ export interface ChatResponse {
   }>
 }
 
+export interface GenerateFastAPIEndpointRequest {
+  endpoint_path: string
+  description: string
+}
+
+export interface EndpointCodeResponse {
+  code: string
+  endpoint_path: string
+  method: string
+}
+
 export type OnboardingRole = "user" | "assistant" | "system"
 
 export interface OnboardingChatMessage {
@@ -514,6 +525,36 @@ export class FileAPI {
     })
     if (!response.ok) {
       throw new Error('Failed to send chat message')
+    }
+    return response.json()
+  }
+
+  static async generateFastAPIGetEndpoint(request: GenerateFastAPIEndpointRequest): Promise<EndpointCodeResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/generate-fastapi-get`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || 'Failed to generate GET endpoint')
+    }
+    return response.json()
+  }
+
+  static async generateFastAPIPostEndpoint(request: GenerateFastAPIEndpointRequest): Promise<EndpointCodeResponse> {
+    const response = await fetch(`${API_BASE_URL}/api/generate-fastapi-post`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || 'Failed to generate POST endpoint')
     }
     return response.json()
   }

@@ -145,7 +145,7 @@ def create_node_generation_agent():
     
     # Store agent configuration
     agent_config = {
-        "model": "claude-3-5-sonnet-20241022",
+        "model": "claude-sonnet-4-5-20250929",
         "tools": tools,
         "system": """You are a node generation assistant for a visual development environment. Your role is to analyze conversation history and generate appropriate file nodes for the canvas based on user intent.
 

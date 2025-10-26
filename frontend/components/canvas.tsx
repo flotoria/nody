@@ -243,12 +243,8 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
 
   return (
     <div
-      className={`relative rounded-2xl border-2 backdrop-blur-sm transition-all duration-200 ${
-        data.isHovered 
-          ? "border-primary bg-primary/25 shadow-lg shadow-primary/20" 
-          : selected 
-            ? "border-primary/60 bg-primary/10" 
-            : "border-primary/30 bg-primary/10"
+      className={`relative rounded-2xl border-2 bg-primary/10 transition-all ${
+        selected ? "border-primary/60" : "border-primary/30"
       }`}
       style={{ width: data.width, height }}
     >
@@ -336,6 +332,7 @@ const nodeTypes = {
 function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
   const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
+  const [selectedEdges, setSelectedEdges] = useState<string[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
   const [metadataRecords, setMetadataRecords] = useState<Record<string, NodeMetadata>>({})
   const [folderRecords, setFolderRecords] = useState<ApiFolderNode[]>([])
@@ -831,7 +828,20 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
     const appendFileNode = (record: ApiFileNode) => {
       const meta = metadataRecords[record.id]
-      const position = meta ? { x: meta.x ?? 120, y: meta.y ?? 120 } : { x: 120, y: 120 }
+      let position = meta ? { x: meta.x ?? 120, y: meta.y ?? 120 } : { x: 120, y: 120 }
+      
+      // If the file belongs to a folder, convert absolute position to relative position
+      if (record.parentFolder) {
+        const parentFolder = folderRecords.find(f => f.id === record.parentFolder)
+        if (parentFolder) {
+          // Convert absolute position to relative to parent folder
+          position = {
+            x: position.x - parentFolder.x,
+            y: position.y - parentFolder.y
+          }
+        }
+      }
+      
       nodes.push({
         id: record.id,
         type: "fileNode",
@@ -860,7 +870,6 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         selectable: true,
         connectable: true,
         parentId: record.parentFolder ?? undefined,
-        extent: record.parentFolder ? "parent" : undefined,
       })
     }
 
@@ -932,8 +941,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         data: { type: edge.type ?? "depends_on", description: edge.description },
         type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-        zIndex: 10,
-        style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
+        style: {
+          pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
+          cursor: "pointer",
+          strokeWidth: 2,
+        },
+        zIndex: 1000,
       }
     })
   }, [edgeRecords])
@@ -1086,7 +1099,16 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       
       if (node.type === "fileNode" && isFileNodeData(node.data)) {
         const fileId = node.id
-        const { x, y } = node.position
+        let { x, y } = node.position
+
+        // If the file has a parent, convert relative position to absolute
+        if (node.data.parentFolder) {
+          const parentFolder = folderRecords.find(f => f.id === node.data.parentFolder)
+          if (parentFolder) {
+            x = x + parentFolder.x
+            y = y + parentFolder.y
+          }
+        }
 
         try {
           await FileAPI.updateFilePosition(fileId, x, y)
@@ -1124,6 +1146,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       if (node.type === "folderNode") {
         const folderId = node.id
         try {
+          // Get the old folder position before updating
+          const oldFolder = folderRecords.find(f => f.id === folderId)
+          
           // Update folder position and dimensions if resized
           const updates: any = { x: node.position.x, y: node.position.y }
           if (node.style?.width) {
@@ -1133,6 +1158,27 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             updates.height = node.style.height
           }
           await FileAPI.updateFolder(folderId, updates)
+          
+          // Update all child file positions to maintain their relative positions
+          if (oldFolder) {
+            const deltaX = node.position.x - oldFolder.x
+            const deltaY = node.position.y - oldFolder.y
+            
+            // Find all files that belong to this folder
+            const childFiles = fileRecords.filter(f => f.parentFolder === folderId)
+            
+            // Update each child file's absolute position
+            for (const child of childFiles) {
+              try {
+                const newAbsoluteX = child.x + deltaX
+                const newAbsoluteY = child.y + deltaY
+                await FileAPI.updateFilePosition(child.id, newAbsoluteX, newAbsoluteY)
+              } catch (error) {
+                console.error(`Failed to update child file ${child.id}:`, error)
+              }
+            }
+          }
+          
           await refreshMetadata()
         } catch (error) {
           console.error("Failed to update folder:", error)
@@ -1160,8 +1206,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       const nodeId = params.nodes?.[0]?.id ?? null
       setSelectedNodeId(nodeId)
       onSelectNode(nodeId)
+      
+      // Track selected edges
+      const edgeIds = params.edges?.map(e => e.id) || []
+      setSelectedEdges(edgeIds)
     },
-    [onSelectNode],
+    [onSelectNode, setSelectedEdges],
   )
 
   const handlePaneClick = useCallback(() => {
@@ -1169,14 +1219,36 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     onSelectNode(null)
   }, [onSelectNode])
 
+  // Handle keyboard events for deleting edges
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Delete" && selectedEdges.length > 0) {
+        const edgesToDelete = selectedEdges
+          .map(id => flowEdges.find(e => e.id === id))
+          .filter((edge): edge is Edge => edge !== undefined)
+        
+        if (edgesToDelete.length > 0) {
+          handleEdgesDelete(edgesToDelete)
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [selectedEdges, flowEdges, handleEdgesDelete])
+
   const defaultEdgeOptions = useMemo(
     () => ({
       type: "smoothstep" as const,
       animated: false,
       deletable: true,
       markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-      style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
-      zIndex: 10,
+      style: { 
+        strokeWidth: 2,
+        pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
+        cursor: "pointer"
+      },
+      zIndex: 1000,
     }),
     [],
   )
@@ -1185,6 +1257,30 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     setPendingFilePosition(position ?? defaultFilePosition())
     setShowFileModal(true)
   }, [defaultFilePosition])
+
+  const openCreateFolderModal = useCallback((position?: { x: number; y: number }) => {
+    setPendingFolderPosition(position ?? defaultFilePosition())
+    setShowFolderModal(true)
+  }, [defaultFilePosition])
+
+  // Listen for custom events to show modals
+  useEffect(() => {
+    const handleCreateFile = () => {
+      openCreateFileModal()
+    }
+    
+    const handleCreateFolder = () => {
+      openCreateFolderModal()
+    }
+    
+    window.addEventListener('create-file', handleCreateFile)
+    window.addEventListener('create-folder', handleCreateFolder)
+    
+    return () => {
+      window.removeEventListener('create-file', handleCreateFile)
+      window.removeEventListener('create-folder', handleCreateFolder)
+    }
+  }, [openCreateFileModal, openCreateFolderModal])
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()

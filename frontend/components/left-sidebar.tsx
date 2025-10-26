@@ -9,12 +9,12 @@ import type { FileNode, NodeMetadata } from "@/lib/api"
 import { Inspector } from "@/components/left-sidebar-inspector"
 
 const nodeCategories = [
-  { id: "files", name: "Files", icon: FileText, color: "text-orange-400" },
-  { id: "logic", name: "Logic", icon: Code, color: "text-blue-400" },
-  { id: "data", name: "Data", icon: Database, color: "text-green-400" },
-  { id: "ai", name: "AI Models", icon: Sparkles, color: "text-purple-400" },
-  { id: "api", name: "APIs", icon: Zap, color: "text-yellow-400" },
-  { id: "utils", name: "Utilities", icon: Box, color: "text-cyan-400" },
+  { id: "files", name: "Files", icon: FileText, color: "text-orange-400", dotColor: "bg-orange-400", bgColor: "bg-orange-400/10", borderColor: "border-orange-400/30" },
+  { id: "logic", name: "Logic", icon: Code, color: "text-blue-400", dotColor: "bg-blue-400", bgColor: "bg-blue-400/10", borderColor: "border-blue-400/30" },
+  { id: "data", name: "Data", icon: Database, color: "text-green-400", dotColor: "bg-green-400", bgColor: "bg-green-400/10", borderColor: "border-green-400/30" },
+  { id: "ai", name: "AI Models", icon: Sparkles, color: "text-purple-400", dotColor: "bg-purple-400", bgColor: "bg-purple-400/10", borderColor: "border-purple-400/30" },
+  { id: "api", name: "APIs", icon: Zap, color: "text-yellow-400", dotColor: "bg-yellow-400", bgColor: "bg-yellow-400/10", borderColor: "border-yellow-400/30" },
+  { id: "utils", name: "Utilities", icon: Box, color: "text-cyan-400", dotColor: "bg-cyan-400", bgColor: "bg-cyan-400/10", borderColor: "border-cyan-400/30" },
 ]
 
 const nodeTemplates = {
@@ -41,7 +41,9 @@ const nodeTemplates = {
     { label: "Image Gen", type: "ai" },
   ],
   api: [
-    { label: "REST Call", type: "api" },
+    { label: "FastAPI GET", type: "fastapi_get", isSpecial: true },
+    { label: "FastAPI POST", type: "fastapi_post", isSpecial: true },
+    { label: "FastAPI Server", type: "api" },
     { label: "GraphQL", type: "api" },
     { label: "Webhook", type: "api" },
     { label: "WebSocket", type: "api" },
@@ -60,9 +62,10 @@ interface LeftSidebarProps {
   metadata: Record<string, NodeMetadata>
   onCreateFile?: (fileName: string, fileType: string) => void
   onUpdateDescription?: (nodeId: string, description: string) => void
+  onGenerateEndpoint?: (method: "GET" | "POST") => void
 }
 
-export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpdateDescription }: LeftSidebarProps) {
+export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpdateDescription, onGenerateEndpoint }: LeftSidebarProps) {
   const [selectedCategory, setSelectedCategory] = useState("files")
   const [activeTab, setActiveTab] = useState("nodes")
 
@@ -78,6 +81,23 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
     e.dataTransfer.setData("application/reactflow", nodeData.type)
     e.dataTransfer.setData("text/plain", nodeData.type)
     e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleNodeClick = async (node: { label: string; type: string }) => {
+    if (node.type === "fastapi_get" && onGenerateEndpoint) {
+      onGenerateEndpoint("GET")
+      return
+    } else if (node.type === "fastapi_post" && onGenerateEndpoint) {
+      onGenerateEndpoint("POST")
+      return
+    } else if (node.type === "file") {
+      // Trigger file creation - the modal will be shown by Canvas component
+      // We need to dispatch a custom event to trigger the canvas to show the file modal
+      window.dispatchEvent(new CustomEvent('create-file'))
+    } else if (node.type === "folder") {
+      // Trigger folder creation
+      window.dispatchEvent(new CustomEvent('create-folder'))
+    }
   }
 
   return (
@@ -102,14 +122,15 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
             <div className="space-y-1">
               {nodeCategories.map((category) => {
                 const Icon = category.icon
+                const isSelected = selectedCategory === category.id
                 return (
                   <button
                     key={category.id}
                     onClick={() => setSelectedCategory(category.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
-                      selectedCategory === category.id
-                        ? "neu-pressed bg-background"
-                        : "neu-raised-sm neu-hover neu-active bg-card"
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all border ${
+                      isSelected
+                        ? `neu-pressed bg-background ${category.bgColor} ${category.borderColor}`
+                        : `neu-raised-sm neu-hover neu-active bg-card border-transparent`
                     }`}
                   >
                     <Icon className={`w-4 h-4 ${category.color}`} />
@@ -121,20 +142,30 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onCreateFile, onUpd
           </div>
 
           <div className="p-4 space-y-2">
-            {nodeTemplates[selectedCategory as keyof typeof nodeTemplates]?.map((node) => (
-              <div
-                key={node.label}
-                draggable
-                onDragStart={(e) => handleDragStart(e, node)}
-                className="neu-raised neu-hover neu-active bg-card p-3 rounded-xl cursor-move transition-all hover:scale-105"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-primary" />
-                  <span className="text-sm font-medium text-foreground">{node.label}</span>
+            {nodeTemplates[selectedCategory as keyof typeof nodeTemplates]?.map((node) => {
+              const category = nodeCategories.find(c => c.id === selectedCategory)
+              const dotColor = category?.dotColor || "bg-primary"
+              
+              return (
+                <div
+                  key={node.label}
+                  draggable={!node.isSpecial}
+                  onDragStart={(e) => !node.isSpecial && handleDragStart(e, node)}
+                  onClick={() => node.isSpecial && handleNodeClick(node)}
+                  className={`neu-raised neu-hover neu-active bg-card p-3 rounded-xl transition-all ${
+                    node.isSpecial ? "cursor-pointer" : "cursor-move"
+                  } hover:scale-105`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${dotColor}`} />
+                    <span className="text-sm font-medium text-foreground">{node.label}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {node.isSpecial ? "Click to generate" : "Drag to canvas"}
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Drag to canvas</p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </TabsContent>
 
