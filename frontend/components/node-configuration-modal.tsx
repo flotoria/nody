@@ -99,7 +99,7 @@ export function NodeConfigurationModal({
     const config: NodeConfiguration = {
       label: label.trim() || `${nodeType} node`,
       description: description.trim(),
-      category: nodeType, // Use the nodeType as the category
+      category: initialValues?.category || nodeType, // Use initialValues category if available, fallback to nodeType
       fileType: nodeType === "file" ? fileType : undefined,
       fileName: resolvedFileName,
     }

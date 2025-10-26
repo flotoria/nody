@@ -51,86 +51,86 @@ const getCategoryColors = (category: string) => {
     text: string
   }> = {
     "Files": {
-      primary: "orange-400",
-      secondary: "orange-300", 
-      accent: "orange-500",
-      border: "orange-400/30",
-      bg: "orange-400/10",
-      text: "orange-400"
+      primary: "#fb923c", // orange-400
+      secondary: "#fdba74", // orange-300
+      accent: "#f97316", // orange-500
+      border: "#fb923c4d", // orange-400/30
+      bg: "#fb923c1a", // orange-400/10
+      text: "#fb923c" // orange-400
     },
     "AI / ML Boilerplates": {
-      primary: "purple-400",
-      secondary: "purple-300",
-      accent: "purple-500", 
-      border: "purple-400/30",
-      bg: "purple-400/10",
-      text: "purple-400"
+      primary: "#a855f7", // purple-400
+      secondary: "#c084fc", // purple-300
+      accent: "#9333ea", // purple-500
+      border: "#a855f74d", // purple-400/30
+      bg: "#a855f71a", // purple-400/10
+      text: "#a855f7" // purple-400
     },
     "Web & API": {
-      primary: "blue-400",
-      secondary: "blue-300",
-      accent: "blue-500",
-      border: "blue-400/30", 
-      bg: "blue-400/10",
-      text: "blue-400"
+      primary: "#60a5fa", // blue-400
+      secondary: "#93c5fd", // blue-300
+      accent: "#3b82f6", // blue-500
+      border: "#60a5fa4d", // blue-400/30
+      bg: "#60a5fa1a", // blue-400/10
+      text: "#60a5fa" // blue-400
     },
     "Backend Logic": {
-      primary: "indigo-400",
-      secondary: "indigo-300",
-      accent: "indigo-500",
-      border: "indigo-400/30",
-      bg: "indigo-400/10", 
-      text: "indigo-400"
+      primary: "#818cf8", // indigo-400
+      secondary: "#a5b4fc", // indigo-300
+      accent: "#6366f1", // indigo-500
+      border: "#818cf84d", // indigo-400/30
+      bg: "#818cf81a", // indigo-400/10
+      text: "#818cf8" // indigo-400
     },
     "Database & Data Flow": {
-      primary: "green-400",
-      secondary: "green-300",
-      accent: "green-500",
-      border: "green-400/30",
-      bg: "green-400/10",
-      text: "green-400"
+      primary: "#4ade80", // green-400
+      secondary: "#86efac", // green-300
+      accent: "#22c55e", // green-500
+      border: "#4ade804d", // green-400/30
+      bg: "#4ade801a", // green-400/10
+      text: "#4ade80" // green-400
     },
     "DevOps & Infra": {
-      primary: "teal-400", 
-      secondary: "teal-300",
-      accent: "teal-500",
-      border: "teal-400/30",
-      bg: "teal-400/10",
-      text: "teal-400"
+      primary: "#2dd4bf", // teal-400
+      secondary: "#5eead4", // teal-300
+      accent: "#14b8a6", // teal-500
+      border: "#2dd4bf4d", // teal-400/30
+      bg: "#2dd4bf1a", // teal-400/10
+      text: "#2dd4bf" // teal-400
     },
     "Frontend / UI": {
-      primary: "pink-400",
-      secondary: "pink-300", 
-      accent: "pink-500",
-      border: "pink-400/30",
-      bg: "pink-400/10",
-      text: "pink-400"
+      primary: "#f472b6", // pink-400
+      secondary: "#f9a8d4", // pink-300
+      accent: "#ec4899", // pink-500
+      border: "#f472b64d", // pink-400/30
+      bg: "#f472b61a", // pink-400/10
+      text: "#f472b6" // pink-400
     },
     "Security & Auth": {
-      primary: "red-400",
-      secondary: "red-300",
-      accent: "red-500", 
-      border: "red-400/30",
-      bg: "red-400/10",
-      text: "red-400"
+      primary: "#f87171", // red-400
+      secondary: "#fca5a5", // red-300
+      accent: "#ef4444", // red-500
+      border: "#f871714d", // red-400/30
+      bg: "#f871711a", // red-400/10
+      text: "#f87171" // red-400
     },
     "Utility / Common": {
-      primary: "cyan-400",
-      secondary: "cyan-300",
-      accent: "cyan-500",
-      border: "cyan-400/30",
-      bg: "cyan-400/10",
-      text: "cyan-400"
+      primary: "#22d3ee", // cyan-400
+      secondary: "#67e8f9", // cyan-300
+      accent: "#06b6d4", // cyan-500
+      border: "#22d3ee4d", // cyan-400/30
+      bg: "#22d3ee1a", // cyan-400/10
+      text: "#22d3ee" // cyan-400
     }
   }
   
   return categoryMap[category] || {
-    primary: "gray-400",
-    secondary: "gray-300",
-    accent: "gray-500",
-    border: "gray-400/30", 
-    bg: "gray-400/10",
-    text: "gray-400"
+    primary: "#9ca3af", // gray-400
+    secondary: "#d1d5db", // gray-300
+    accent: "#6b7280", // gray-500
+    border: "#9ca3af4d", // gray-400/30
+    bg: "#9ca3af1a", // gray-400/10
+    text: "#9ca3af" // gray-400
   }
 }
 
@@ -269,16 +269,24 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
 
   return (
     <div
-      className={`relative rounded-2xl border bg-card/90 shadow-lg transition-all ${
-        selected ? `ring-2 ring-${colors.primary}/60 border-${colors.primary}/40` : `border-${colors.border}`
-      }`}
-      style={{ width: NODE_WIDTH }}
+      className="relative rounded-2xl border bg-card/90 shadow-lg transition-all"
+      style={{ 
+        width: NODE_WIDTH,
+        borderColor: selected ? colors.primary : colors.border,
+        boxShadow: selected ? `0 0 0 2px ${colors.primary}40` : undefined
+      }}
     >
       <NodeHandles isConnectable={isConnectable} />
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-xl bg-${colors.bg} text-${colors.text}`}>
+            <div 
+              className="flex h-9 w-9 items-center justify-center rounded-xl"
+              style={{ 
+                backgroundColor: colors.bg,
+                color: colors.text
+              }}
+            >
               <FileText className="h-4 w-4" />
             </div>
             <div className="min-w-0">
@@ -289,12 +297,21 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
             </div>
           </div>
           {data.generating ? (
-            <Sparkles className={`h-4 w-4 animate-spin text-${colors.text}`} />
+            <Sparkles 
+              className="h-4 w-4 animate-spin" 
+              style={{ color: colors.text }}
+            />
           ) : null}
         </div>
 
         {data.category && (
-          <span className={`inline-flex w-fit items-center rounded-full bg-${colors.bg} px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-${colors.text}`}>
+          <span 
+            className="inline-flex w-fit items-center rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ 
+              backgroundColor: colors.bg,
+              color: colors.text
+            }}
+          >
             {data.category}
           </span>
         )}
@@ -343,7 +360,8 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
             <Button
               size="sm"
               variant="ghost"
-              className={`h-7 px-2 text-xs text-${colors.text}`}
+              className="h-7 px-2 text-xs"
+              style={{ color: colors.text }}
               onClick={() => data.onGenerate(id)}
               disabled={data.generating}
             >
@@ -372,13 +390,15 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
 
   return (
     <div
-      className={`relative rounded-2xl border-2 bg-card/90 transition-all ${
-        selected ? `border-${colors.primary}/60` : `border-${colors.primary}/30`
-      }`}
-      style={{ width: data.width, height }}
+      className="relative rounded-2xl border-2 bg-card/90 transition-all"
+      style={{ 
+        width: data.width, 
+        height,
+        borderColor: selected ? colors.primary : colors.border
+      }}
     >
       <NodeResizer
-        color={`var(--${colors.primary})`}
+        color={colors.primary}
         isVisible={selected}
         minWidth={300}
         minHeight={200}
@@ -386,19 +406,31 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
           width: '20px',
           height: '20px',
           borderRadius: '4px',
-          backgroundColor: `var(--${colors.primary})`,
+          backgroundColor: colors.primary,
           border: '2px solid white',
           boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
         }}
         lineStyle={{
-          borderColor: `var(--${colors.primary})`,
+          borderColor: colors.primary,
           borderWidth: '2px',
         }}
       />
       <NodeHandles isConnectable={isConnectable} />
       <div className="flex h-full flex-col">
-        <div className={`flex items-center gap-3 border-b border-${colors.border} bg-${colors.bg} px-4 py-3`}>
-          <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-${colors.bg} text-${colors.text}`}>
+        <div 
+          className="flex items-center gap-3 border-b px-4 py-3"
+          style={{ 
+            borderColor: colors.border,
+            backgroundColor: colors.bg
+          }}
+        >
+          <div 
+            className="flex h-8 w-8 items-center justify-center rounded-lg"
+            style={{ 
+              backgroundColor: colors.bg,
+              color: colors.text
+            }}
+          >
             <FolderIcon className="h-4 w-4" />
           </div>
           <div className="flex flex-1 flex-col">
@@ -437,13 +469,20 @@ const GenericNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<
   
   return (
     <div
-      className={`relative rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all ${
-        selected ? `ring-2 ring-${colors.primary}/50 border-${colors.primary}/30` : `border-${colors.border}`
-      }`}
-      style={{ width: 220 }}
+      className="relative rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all"
+      style={{ 
+        width: 220,
+        borderColor: selected ? colors.primary : colors.border,
+        boxShadow: selected ? `0 0 0 2px ${colors.primary}40` : undefined
+      }}
     >
       <NodeHandles isConnectable={isConnectable} />
-      <p className={`text-xs uppercase tracking-wide text-${colors.text}`}>{data.category}</p>
+      <p 
+        className="text-xs uppercase tracking-wide"
+        style={{ color: colors.text }}
+      >
+        {data.category}
+      </p>
       <p className="mt-1 text-sm font-semibold text-foreground">{data.label}</p>
       <p className="mt-2 text-xs text-muted-foreground">
         Placeholder node. Connect or convert this into concrete implementation.
@@ -1405,8 +1444,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       const { type, position, label: initialLabel, template, categoryLabel } = pendingNodeConfig
       const genericId = `generic-${Date.now()}`
       const finalLabel = config.label || initialLabel || `${type} node`
-      const categoryRaw = config.category || categoryLabel || (template ? "File" : "Custom")
-      const resolvedCategory = categoryRaw.toLowerCase() === "file" ? "File" : categoryRaw
+      // Use categoryLabel from template, fallback to config.category, then default
+      const resolvedCategory = categoryLabel || config.category || (template ? "Files" : "Custom")
 
       if (type === "file") {
         // Create a file node
