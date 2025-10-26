@@ -506,16 +506,19 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         label: typeLabel,
         data: { type: edge.type ?? "depends_on", description: edge.description },
         type: "smoothstep",
-        markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+        animated: isRunning, // Enable edge animation when canvas is running
+        markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: isRunning ? "#a855f7" : "#ffffff" },
         style: {
           pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
           cursor: "pointer",
-          strokeWidth: 2,
+          stroke: isRunning ? "#a855f7" : "#ffffff",
+          strokeWidth: 2.5,
+          filter: isRunning ? 'drop-shadow(0 0 8px rgba(168, 85, 247, 0.6))' : 'none',
         },
         zIndex: 1000,
       }
     })
-  }, [edgeRecords])
+  }, [edgeRecords, isRunning])
 
   useEffect(() => {
     setFlowNodes(rebuildNodes())
@@ -737,27 +740,27 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
 
   const defaultEdgeOptions = useMemo(() => ({
     type: "smoothstep" as const,
-    animated: true,
+    animated: isRunning, // Only animate when canvas is running
     deletable: true,
     markerEnd: { 
       type: MarkerType.ArrowClosed, 
       width: 20, 
       height: 20,
-      color: '#a855f7'
+      color: isRunning ? '#a855f7' : '#ffffff'
     },
     style: { 
       strokeWidth: 2.5,
       pointerEvents: "stroke" as React.CSSProperties["pointerEvents"],
       cursor: "pointer",
-      stroke: '#a855f7',
-      filter: 'drop-shadow(0 0 8px rgba(168, 85, 247, 0.6))',
+      stroke: isRunning ? '#a855f7' : '#ffffff',
+      filter: isRunning ? 'drop-shadow(0 0 8px rgba(168, 85, 247, 0.6))' : 'none',
     },
     zIndex: 1000,
     pathOptions: {
       offset: 0,
       borderRadius: 8,
     },
-  }), [])
+  }), [isRunning])
 
   const handleNodeConfigure = useCallback(async (config: NodeConfiguration) => {
     if (!pendingNodeConfig) return
