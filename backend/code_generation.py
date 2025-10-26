@@ -245,7 +245,8 @@ class CodeGenerationService:
             if not file_name:
                 continue
             if "." not in os.path.basename(file_name):
-                file_name = f"{file_name}.txt"
+                # Don't automatically add .txt extension - let the user specify the extension
+                pass
             normalized_path = os.path.normpath(file_name)
             if normalized_path.startswith(".."):
                 continue

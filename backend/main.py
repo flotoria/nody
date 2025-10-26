@@ -2,16 +2,18 @@
 Main FastAPI application for Nody VDE Backend.
 """
 import json
-from typing import Optional
+from typing import Optional, List, Dict
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
 import os
 import json
 from datetime import datetime
 import subprocess
 import threading
+import re
+import signal
 from dotenv import load_dotenv
 from letta_client import Letta
 from agents import create_file_system_agent, create_node_generation_agent, generate_nodes_from_conversation
@@ -34,6 +36,10 @@ workspace_manager = WorkspaceManager()
 RUN_APP_PROCESS: Optional[subprocess.Popen] = None
 RUN_APP_THREAD: Optional[threading.Thread] = None
 RUN_APP_LOCK = threading.Lock()
+
+# Track running file processes for server applications
+RUNNING_FILE_PROCESSES: Dict[str, subprocess.Popen] = {}
+RUNNING_FILE_LOCKS = threading.Lock()
 
 # Create FastAPI app
 app = FastAPI(title=API_TITLE, version=API_VERSION)
@@ -79,6 +85,49 @@ async def startup_event():
         print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
         print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
         print("3. Set ANTHROPIC_API_KEY environment variable")
+
+
+# ==================== PORT CLEANUP HELPERS ====================
+
+def _extract_port_from_command(command: str) -> Optional[int]:
+    """Extract port number from a command string."""
+    # Match --port XXXX or --port=XXXX
+    port_match = re.search(r'--port[=\s]+(\d+)', command)
+    if port_match:
+        return int(port_match.group(1))
+    
+    # Match :XXXX for other server formats
+    port_match = re.search(r':(\d+)\b', command)
+    if port_match:
+        return int(port_match.group(1))
+    
+    return None
+
+
+def _kill_process_on_port(port: int) -> bool:
+    """Kill any process using the specified port."""
+    try:
+        # Use lsof to find process on port
+        result = subprocess.run(
+            ['lsof', '-ti', f':{port}'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            pids = result.stdout.strip().split('\n')
+            for pid in pids:
+                try:
+                    # Kill the process
+                    subprocess.run(['kill', '-9', pid], check=True)
+                    output_logger.write_output(f"🔥 Killed existing process (PID: {pid}) on port {port}", "INFO")
+                except subprocess.CalledProcessError:
+                    pass
+            return True
+        return False
+    except Exception as e:
+        print(f"Error killing process on port {port}: {e}")
+        return False
 
 
 # ==================== FILE OPERATIONS ====================
@@ -218,6 +267,294 @@ async def generate_file_code(file_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating code: {str(e)}")
+
+
+@app.get("/files/{file_id}/run")
+async def run_file(file_id: str):
+    """Run a file with streaming output (Server-Sent Events)."""
+    from fastapi.responses import StreamingResponse
+    import asyncio
+    
+    try:
+        # Get file metadata and content
+        metadata = file_db.load_metadata()
+        if file_id not in metadata:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        node_data = metadata[file_id]
+        if node_data.get("type") != "file":
+            raise HTTPException(status_code=400, detail="Node is not a file type")
+        
+        file_name = node_data.get("fileName", f"file_{file_id}")
+        file_path = CANVAS_DIR / file_name
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File does not exist on filesystem")
+        
+        # Read file content
+        try:
+            content = file_path.read_text(encoding='utf-8')
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+        
+        # Determine run command based on file type and content
+        command = _determine_run_command(file_name, content)
+        if not command:
+            raise HTTPException(status_code=400, detail="File type is not runnable")
+        
+        # Check if already running
+        with RUNNING_FILE_LOCKS:
+            if file_id in RUNNING_FILE_PROCESSES:
+                process = RUNNING_FILE_PROCESSES[file_id]
+                if process.poll() is None:
+                    raise HTTPException(
+                        status_code=409, 
+                        detail=f"File is already running (PID: {process.pid})"
+                    )
+                else:
+                    # Process finished, remove it
+                    del RUNNING_FILE_PROCESSES[file_id]
+        
+        # Determine working directory
+        working_dir = _determine_working_directory(file_path)
+        
+        async def stream_output():
+            """Stream file execution output"""
+            global RUNNING_FILE_PROCESSES
+            process = None
+            
+            try:
+                # Check if command uses a port and clean it up if necessary
+                port = _extract_port_from_command(command)
+                if port:
+                    if _kill_process_on_port(port):
+                        output_logger.write_output(f"🧹 Cleaned up port {port}", "INFO")
+                
+                # Log command
+                output_logger.write_output(f"🚀 Running {file_name}...", "INFO")
+                output_logger.write_output(f"$ {command}", "INFO")
+                command_output = f"$ {command}\n"
+                yield f"data: {json.dumps({'output': command_output})}\n\n"
+                
+                # Start process with new session to allow killing entire process group
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=str(working_dir),
+                    start_new_session=True  # Create new process group
+                )
+                
+                # Store process handle
+                with RUNNING_FILE_LOCKS:
+                    RUNNING_FILE_PROCESSES[file_id] = process
+                    print(f"DEBUG: Started file {file_id} with PID {process.pid}")
+                    print(f"DEBUG: Running files now: {list(RUNNING_FILE_PROCESSES.keys())}")
+                
+                yield f"data: {json.dumps({'pid': process.pid, 'file_id': file_id})}\n\n"
+                
+                # Stream output line by line
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        output_logger.write_output(line.rstrip(), "INFO")
+                        yield f"data: {json.dumps({'output': line})}\n\n"
+                        await asyncio.sleep(0.01)
+                
+                # Wait for process to complete
+                process.wait()
+                
+                # Send completion status
+                if process.returncode == 0:
+                    output_logger.write_output(f"✅ {file_name} completed successfully", "SUCCESS")
+                    yield f"data: {json.dumps({'done': True, 'return_code': process.returncode, 'success': True})}\n\n"
+                else:
+                    output_logger.write_output(f"❌ {file_name} exited with code {process.returncode}", "ERROR")
+                    yield f"data: {json.dumps({'done': True, 'return_code': process.returncode, 'success': False})}\n\n"
+                
+                # Clean up process handle when it actually finishes
+                with RUNNING_FILE_LOCKS:
+                    if file_id in RUNNING_FILE_PROCESSES:
+                        del RUNNING_FILE_PROCESSES[file_id]
+                        print(f"DEBUG: Process {file_id} finished, removed from tracking")
+                
+            except Exception as e:
+                error_msg = f"Error running file: {str(e)}"
+                output_logger.write_output(error_msg, "ERROR")
+                yield f"data: {json.dumps({'error': error_msg})}\n\n"
+            finally:
+                # Only clean up if there was an error starting the process
+                if process is None and file_id in RUNNING_FILE_PROCESSES:
+                    with RUNNING_FILE_LOCKS:
+                        if file_id in RUNNING_FILE_PROCESSES:
+                            del RUNNING_FILE_PROCESSES[file_id]
+        
+        return StreamingResponse(stream_output(), media_type="text/event-stream")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error running file: {str(e)}")
+
+
+@app.post("/files/{file_id}/stop")
+async def stop_file(file_id: str):
+    """Stop a running file process."""
+    global RUNNING_FILE_PROCESSES
+    
+    # Debug logging
+    print(f"DEBUG: Stop requested for file_id: {file_id}")
+    print(f"DEBUG: Currently running files: {list(RUNNING_FILE_PROCESSES.keys())}")
+    
+    with RUNNING_FILE_LOCKS:
+        if file_id not in RUNNING_FILE_PROCESSES:
+            print(f"DEBUG: File {file_id} not found in running processes")
+            raise HTTPException(status_code=404, detail="File is not currently running")
+        
+        process = RUNNING_FILE_PROCESSES[file_id]
+        
+        # Check if process is still running
+        if process.poll() is not None:
+            # Process already finished
+            del RUNNING_FILE_PROCESSES[file_id]
+            raise HTTPException(status_code=404, detail="File process has already finished")
+        
+        try:
+            # Get file metadata for logging
+            metadata = file_db.load_metadata()
+            file_name = metadata.get(file_id, {}).get("fileName", file_id)
+            
+            # Try graceful termination first - kill entire process group
+            try:
+                pgid = os.getpgid(process.pid)
+                os.killpg(pgid, signal.SIGTERM)
+                output_logger.write_output(f"🛑 Stopping {file_name} (PID: {process.pid}, PGID: {pgid})...", "INFO")
+            except (ProcessLookupError, PermissionError) as e:
+                # Fallback to killing just the process if process group doesn't exist
+                process.terminate()
+                output_logger.write_output(f"🛑 Stopping {file_name} (PID: {process.pid})...", "INFO")
+            
+            # Wait up to 5 seconds for graceful shutdown
+            try:
+                process.wait(timeout=5)
+                output_logger.write_output(f"✅ {file_name} stopped gracefully", "SUCCESS")
+            except subprocess.TimeoutExpired:
+                # Force kill if graceful shutdown fails - kill entire process group
+                try:
+                    pgid = os.getpgid(process.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                    output_logger.write_output(f"⚠️  {file_name} force killed (entire process group)", "INFO")
+                except (ProcessLookupError, PermissionError):
+                    # Fallback to killing just the process
+                    process.kill()
+                    output_logger.write_output(f"⚠️  {file_name} force killed", "INFO")
+                process.wait()
+            
+            # Remove from tracking
+            del RUNNING_FILE_PROCESSES[file_id]
+            
+            return {
+                "success": True,
+                "message": f"Successfully stopped {file_name}",
+                "file_id": file_id
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to stop process: {str(e)}"
+            }
+
+
+@app.get("/files/{file_id}/status")
+async def get_file_status(file_id: str):
+    """Get the running status of a file."""
+    with RUNNING_FILE_LOCKS:
+        if file_id not in RUNNING_FILE_PROCESSES:
+            return {
+                "file_id": file_id,
+                "status": "not_running",
+                "running": False
+            }
+        
+        process = RUNNING_FILE_PROCESSES[file_id]
+        
+        # Check if process is still running
+        if process.poll() is None:
+            return {
+                "file_id": file_id,
+                "status": "running",
+                "running": True,
+                "pid": process.pid
+            }
+        else:
+            # Process finished, clean up
+            return_code = process.returncode
+            del RUNNING_FILE_PROCESSES[file_id]
+            return {
+                "file_id": file_id,
+                "status": "finished",
+                "running": False,
+                "return_code": return_code
+            }
+
+
+def _determine_run_command(file_name: str, content: str) -> str:
+    """Determine the appropriate run command for a file based on its type and content."""
+    file_ext = file_name.lower().split('.')[-1] if '.' in file_name else ''
+    
+    # Python files
+    if file_ext == 'py':
+        # Check for FastAPI - always use uvicorn
+        if 'from fastapi import' in content or 'FastAPI(' in content:
+            module_name = file_name.replace('.py', '')
+            return f"uvicorn {module_name}:app --reload --host 0.0.0.0 --port 8001"
+        # Check for Flask
+        elif 'from flask import' in content or 'Flask(' in content:
+            return f"python {file_name}"
+        # Check for Django
+        elif 'django' in content.lower() or 'manage.py' in file_name:
+            return f"python {file_name}"
+        # Regular Python script
+        else:
+            return f"python {file_name}"
+    
+    # Node.js files
+    elif file_ext == 'js':
+        # Check for Express
+        if 'express' in content.lower() or 'app.listen' in content:
+            return f"node {file_name}"
+        # Regular Node.js script
+        else:
+            return f"node {file_name}"
+    
+    # TypeScript files
+    elif file_ext == 'ts':
+        return f"ts-node {file_name}"
+    
+    # Shell scripts
+    elif file_ext == 'sh':
+        return f"bash {file_name}"
+    
+    # Batch files
+    elif file_ext == 'bat':
+        return file_name
+    
+    # PowerShell files
+    elif file_ext == 'ps1':
+        return f"powershell {file_name}"
+    
+    # Not runnable
+    return None
+
+
+def _determine_working_directory(file_path: Path) -> Path:
+    """Determine the appropriate working directory for running a file."""
+    # For now, use the file's directory
+    # This could be enhanced to detect project root, etc.
+    return file_path.parent
 
 
 # ==================== FOLDER OPERATIONS ====================
