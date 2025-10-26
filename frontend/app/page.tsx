@@ -5,6 +5,7 @@ import { LeftSidebar } from "@/components/left-sidebar"
 import { Canvas } from "@/components/canvas"
 import { RightSidebar } from "@/components/right-sidebar"
 import { BottomDock } from "@/components/bottom-dock"
+import { EndpointGenerationModal } from "@/components/endpoint-generation-modal"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Home, Sparkles, Play } from "lucide-react"
@@ -25,6 +26,8 @@ export default function NodeFlowPage() {
   const [consoleMessages, setConsoleMessages] = useState<ConsoleMessage[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [isLaunchingApp, setIsLaunchingApp] = useState(false)
+  const [showEndpointModal, setShowEndpointModal] = useState(false)
+  const [endpointMethod, setEndpointMethod] = useState<"GET" | "POST">("GET")
 
   // Poll for real-time output messages and metadata updates
   useEffect(() => {
@@ -52,46 +55,11 @@ export default function NodeFlowPage() {
         const rawMetadata = JSON.parse(metadataResponse.content)
         const updatedFiles = await FileAPI.getFiles()
         
-        // Improved metadata change detection
-        setMetadata(prev => {
-          const prevKeys = Object.keys(prev)
-          const newKeys = Object.keys(rawMetadata)
-          const prevKeysSet = new Set(prevKeys)
-          const newKeysSet = new Set(newKeys)
-          
-          // Check if keys have changed
-          const keysChanged = prevKeys.length !== newKeys.length || 
-                             ![...prevKeysSet].every(key => newKeysSet.has(key)) ||
-                             ![...newKeysSet].every(key => prevKeysSet.has(key))
-          
-          // Check if content has changed (more robust comparison)
-          const contentChanged = keysChanged || 
-                                 Object.keys(rawMetadata).some(key => {
-                                   const prevValue = prev[key]
-                                   const newValue = rawMetadata[key]
-                                   return JSON.stringify(prevValue) !== JSON.stringify(newValue)
-                                 })
-          
-          if (prevKeys.length === 0 || contentChanged) {
-            console.log('Main page: Metadata updated from polling:', {
-              prevKeys: prevKeys.length,
-              newKeys: newKeys.length,
-              keysChanged,
-              contentChanged,
-              rawMetadata
-            })
-            return rawMetadata
-          }
-          return prev
-        })
+        // Always update metadata when polling - let React handle re-renders
+        setMetadata(rawMetadata)
         
-        setNodes(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(updatedFiles)) {
-            console.log('Main page: Files updated from polling:', updatedFiles)
-            return updatedFiles
-          }
-          return prev
-        })
+        // Always update files when polling - let React handle re-renders
+        setNodes(updatedFiles)
       } catch (error) {
         console.error('Failed to fetch updates:', error)
       }
@@ -160,13 +128,24 @@ export default function NodeFlowPage() {
     }
   }
 
+  const handleGenerateEndpoint = (method: "GET" | "POST") => {
+    setEndpointMethod(method)
+    setShowEndpointModal(true)
+  }
+
 
   return (
     <div className="h-screen flex overflow-hidden bg-background">
       <PanelGroup direction="horizontal" className="flex-1">
         {/* Left Sidebar */}
         <Panel defaultSize={20} minSize={15} maxSize={35} className="min-w-0">
-          <LeftSidebar selectedNode={selectedNode} nodes={nodes} metadata={metadata} onUpdateDescription={handleUpdateDescription} />
+          <LeftSidebar 
+            selectedNode={selectedNode} 
+            nodes={nodes} 
+            metadata={metadata} 
+            onUpdateDescription={handleUpdateDescription}
+            onGenerateEndpoint={handleGenerateEndpoint}
+          />
         </Panel>
 
         <PanelResizeHandle className="w-1 bg-border hover:bg-primary/50 transition-colors cursor-col-resize" />
@@ -255,6 +234,12 @@ export default function NodeFlowPage() {
           <RightSidebar onMetadataUpdate={handleMetadataUpdate} />
         </Panel>
       </PanelGroup>
+      
+      <EndpointGenerationModal 
+        isOpen={showEndpointModal} 
+        onClose={() => setShowEndpointModal(false)} 
+        method={endpointMethod}
+      />
     </div>
   )
 }

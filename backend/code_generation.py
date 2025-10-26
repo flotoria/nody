@@ -1,16 +1,16 @@
 """
-Letta agent integration for AI-powered code generation.
+Anthropic integration for AI-powered code generation.
 """
 import os
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+import anthropic
 from fastapi import HTTPException
 
-from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR, BACKEND_ROOT
+from config import ANTHROPIC_API_KEY, METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR, BACKEND_ROOT
 from models import FileNode
-from agents.file_system_agent import create_file_system_agent
 from utils import extract_structured_payload, sanitize_plan, position_for_index, infer_file_type_from_name
 from database import file_db, output_logger
 
@@ -93,32 +93,29 @@ CANVAS_RUN_APP_PATH = CANVAS_DIR / "scripts" / "run_app.sh"
 
 
 class CodeGenerationService:
-    """Handles AI-powered code generation using Letta agent."""
+    """Handles AI-powered code generation using Anthropic."""
     
     def __init__(self):
         self.client = None
-        self.agent = None
         self._initialized = False
     
     async def initialize(self):
-        """Initialize the Letta agent."""
+        """Initialize the Anthropic client."""
         if self._initialized:
             return
         
         try:
-            self.client, self.agent = create_file_system_agent()
-            print(f"Letta agent initialized with ID: {self.agent.id}")
+            self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            print("Anthropic client initialized")
             self._initialized = True
         except Exception as e:
-            print(f"Failed to initialize Letta agent: {e}")
-            print("Make sure you have:")
-            print("1. Set LETTA_API_KEY environment variable for Letta Cloud, OR")
-            print("2. Started a self-hosted Letta server and set LETTA_BASE_URL")
-            raise HTTPException(status_code=503, detail="Letta agent initialization failed")
+            print(f"Failed to initialize Anthropic client: {e}")
+            print("Make sure you have set ANTHROPIC_API_KEY environment variable")
+            raise HTTPException(status_code=503, detail="Anthropic client initialization failed")
     
     def is_initialized(self) -> bool:
-        """Check if the agent is initialized."""
-        return self._initialized and self.client is not None and self.agent is not None
+        """Check if the client is initialized."""
+        return self._initialized and self.client is not None
     
     def save_edges(self, edges: List[Dict[str, Any]]):
         """Persist edge relationships to disk."""
@@ -153,16 +150,17 @@ class CodeGenerationService:
             "code_length": len(script_content),
         }
     
-    async def plan_workspace_with_letta(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
-        """Request the Letta agent to design file and edge metadata for the canvas."""
+    async def plan_workspace(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Request Anthropic to design file and edge metadata for the canvas."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
 
         try:
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+                system=METADATA_SYSTEM_PROMPT,
                 messages=[
-                    {"role": "system", "content": LETTA_METADATA_SYSTEM_PROMPT},
                     {
                         "role": "user",
                         "content": json.dumps(
@@ -173,25 +171,27 @@ class CodeGenerationService:
                     },
                 ],
             )
+            
+            # Extract the text content from response
+            content = ""
+            for block in response.content:
+                if block.type == "text":
+                    content += block.text
+            
+            try:
+                plan_data = extract_structured_payload(content)
+                return sanitize_plan(plan_data, project_spec)
+            except HTTPException as parse_error:
+                print(f"Metadata parse error: {parse_error.detail}")
+                from utils import fallback_metadata_plan
+                return fallback_metadata_plan(project_spec)
+
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Failed to contact Letta agent: {exc}") from exc
-
-        for message in response.messages:
-            if message.message_type == "assistant_message" and message.content:
-                try:
-                    plan_data = extract_structured_payload(message.content)
-                    return sanitize_plan(plan_data, project_spec)
-                except HTTPException as parse_error:
-                    print(f"Letta metadata parse error: {parse_error.detail}")
-                    from utils import fallback_metadata_plan
-                    return fallback_metadata_plan(project_spec)
-
-        from utils import fallback_metadata_plan
-        return fallback_metadata_plan(project_spec)
+            raise HTTPException(status_code=502, detail=f"Failed to contact Anthropic: {exc}") from exc
     
     async def prepare_project_workspace(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Transform the saved project spec into canvas metadata and placeholder node files."""
-        plan = await self.plan_workspace_with_letta(project_spec)
+        plan = await self.plan_workspace(project_spec)
         files_plan = plan.get("files") or []
         edges_plan_raw = plan.get("edges") or []
 
@@ -219,8 +219,7 @@ class CodeGenerationService:
             if not file_name:
                 continue
             if "." not in os.path.basename(file_name):
-                # Don't automatically add .txt extension - let the user specify the extension
-                pass
+                file_name = f"{file_name}.txt"
             normalized_path = os.path.normpath(file_name)
             if normalized_path.startswith(".."):
                 continue
@@ -284,7 +283,7 @@ class CodeGenerationService:
     async def generate_file_code(self, file_id: str) -> Dict[str, Any]:
         """Generate code for a specific file based on its description in metadata."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
         
         try:
             # Load metadata
@@ -322,18 +321,18 @@ File name: {file_name}
 
 Generate ONLY the code:"""
             
-            # Send to Letta agent
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
+            # Send to Anthropic
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=16000,
                 messages=[{"role": "user", "content": prompt}]
             )
             
             # Extract the generated code from the response
             generated_code = ""
-            for msg in response.messages:
-                if msg.message_type == "assistant_message" and msg.content:
-                    generated_code = msg.content
-                    break
+            for block in response.content:
+                if block.type == "text":
+                    generated_code += block.text
             
             if not generated_code:
                 output_logger.write_output(f"❌ Failed to generate code for {file_name}", "ERROR")
@@ -368,7 +367,7 @@ Generate ONLY the code:"""
     async def run_project(self) -> Dict[str, Any]:
         """Run the project by generating code for all node files based on metadata."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
 
         try:
             output_logger.clear_output()
@@ -426,16 +425,16 @@ File name: {file_name}
 
 Generate ONLY the code:"""
 
-                response = self.client.agents.messages.create(
-                    agent_id=self.agent.id,
+                response = self.client.messages.create(
+                    model="claude-sonnet-4-5-20250929",
+                    max_tokens=16000,
                     messages=[{"role": "user", "content": prompt}]
                 )
 
                 generated_code = ""
-                for msg in response.messages:
-                    if msg.message_type == "assistant_message" and msg.content:
-                        generated_code = msg.content
-                        break
+                for block in response.content:
+                    if block.type == "text":
+                        generated_code += block.text
 
                 if generated_code:
                     file_path = CANVAS_DIR / file_name
@@ -482,64 +481,77 @@ Generate ONLY the code:"""
                 "total_processed": 0
             }
 
-
-    async def chat_with_agent(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Send a message to the Letta agent."""
+    async def generate_fastapi_get_endpoint(
+        self,
+        endpoint_path: str,
+        description: str
+    ) -> str:
+        """Generate a FastAPI GET endpoint code."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
+        
+        prompt = f"""Generate a FastAPI GET endpoint with the following specifications:
+
+- Endpoint path: {endpoint_path}
+- Description: {description}
+- Include proper type hints and docstrings
+- Follow FastAPI best practices
+- Return ONLY the endpoint code, no explanations
+
+Generate ONLY the FastAPI endpoint decorator and function code:"""
         
         try:
-            # Convert messages to the format expected by Letta
-            letta_messages = [
-                {"role": msg["role"], "content": msg["content"]}
-                for msg in messages
-            ]
-            
-            # Send message to agent
-            response = self.client.agents.messages.create(
-                agent_id=self.agent.id,
-                messages=letta_messages
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}]
             )
             
-            # Convert response to dict format
-            response_messages = []
-            for msg in response.messages:
-                msg_dict = {
-                    "message_type": msg.message_type,
-                }
-                
-                if hasattr(msg, 'content'):
-                    msg_dict["content"] = msg.content
-                if hasattr(msg, 'reasoning'):
-                    msg_dict["reasoning"] = msg.reasoning
-                if hasattr(msg, 'tool_call'):
-                    msg_dict["tool_call"] = {
-                        "name": msg.tool_call.name if msg.tool_call else None,
-                        "arguments": msg.tool_call.arguments if msg.tool_call else None
-                    }
-                if hasattr(msg, 'tool_return'):
-                    msg_dict["tool_return"] = msg.tool_return
-                
-                response_messages.append(msg_dict)
+            # Extract the generated code
+            generated_code = ""
+            for block in response.content:
+                if block.type == "text":
+                    generated_code += block.text
             
-            return {
-                "agent_id": self.agent.id,
-                "messages": response_messages
-            }
-            
+            return generated_code.strip()
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error generating GET endpoint: {str(e)}")
     
-    def get_agent_info(self) -> Dict[str, Any]:
-        """Get information about the Letta agent."""
+    async def generate_fastapi_post_endpoint(
+        self,
+        endpoint_path: str,
+        description: str
+    ) -> str:
+        """Generate a FastAPI POST endpoint code."""
         if not self.is_initialized():
-            raise HTTPException(status_code=503, detail="Letta agent not initialized")
+            raise HTTPException(status_code=503, detail="Anthropic client not initialized")
         
-        return {
-            "agent_id": self.agent.id,
-            "status": "active",
-            "tools_count": len(self.agent.tools) if hasattr(self.agent, 'tools') else 0
-        }
+        prompt = f"""Generate a FastAPI POST endpoint with the following specifications:
+
+- Endpoint path: {endpoint_path}
+- Description: {description}
+- Include proper type hints and docstrings
+- Follow FastAPI best practices
+- Return ONLY the endpoint code, no explanations
+
+Generate ONLY the FastAPI endpoint decorator and function code:"""
+        
+        try:
+            response = self.client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            # Extract the generated code
+            generated_code = ""
+            for block in response.content:
+                if block.type == "text":
+                    generated_code += block.text
+            
+            return generated_code.strip()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error generating POST endpoint: {str(e)}")
 
 
 # Global instance

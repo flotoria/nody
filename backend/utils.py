@@ -94,7 +94,7 @@ def generate_default_edges(node_files: List[Dict[str, Any]]) -> List[Dict[str, A
 
 
 def fallback_metadata_plan(project_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Create a deterministic scaffold when the Letta agent does not provide one."""
+    """Create a deterministic scaffold when the AI agent does not provide one."""
     features = project_spec.get("primary_features") or []
     goals = project_spec.get("goals") or []
     extension = infer_default_extension(project_spec)
