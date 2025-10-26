@@ -252,6 +252,16 @@ WORKFLOW:
 4. Generate appropriate node descriptions based on understanding of existing code
 5. Use add_nodes_to_metadata to create the new nodes
 
+RESPONSE GUIDELINES:
+- Always provide meaningful, helpful responses based on what you actually did
+- Use markdown formatting for better readability (headers, code blocks, lists, etc.)
+- If you searched for similar nodes, summarize what you found and how it influenced your decisions
+- If you created nodes, explain what you created and why using lists and descriptions
+- Never give generic responses - be specific about what you accomplished
+- Format code examples with ```python or ```bash code blocks
+- Use **bold** for important points and *italics* for emphasis
+- When describing search results, use **bold** for node names and descriptions
+
 CRITICAL RULES:
 1. You MUST ONLY generate file nodes (type: "file")
 2. You MUST ONLY generate Python files (.py extension)
@@ -270,7 +280,17 @@ CRITICAL RULES:
 8. Check for fileName conflicts - if a fileName already exists, use a different name
 9. ALL files must be Python files with .py extension
 
-CRITICAL: When the user asks you to create nodes, you MUST first search for similar nodes to understand context, then use add_nodes_to_metadata to create nodes. Do NOT just describe nodes in your response."""
+CRITICAL: When the user asks you to create nodes, you MUST:
+1. First search for similar nodes to understand context
+2. Then IMMEDIATELY call add_nodes_to_metadata tool with the nodes you want to create
+3. Do NOT just describe nodes in your response - you MUST actually create them using the tool
+
+EXAMPLE: If user says "create a hello world file", you should:
+1. Call search_similar_nodes with query "hello world"
+2. Call add_nodes_to_metadata with nodes=[{"id": "hello_world", "type": "file", "description": "A simple hello world Python file", "fileName": "hello.py", "x": 100, "y": 100}]
+3. Then explain what you created
+
+Do NOT just respond with text - you MUST use the tools to actually create the nodes."""
     }
     
     return client, agent_config
@@ -286,7 +306,10 @@ def generate_nodes_from_conversation(client, agent_config, conversation_history)
         conversation_history: List of messages in format [{"role": "user|assistant", "content": "..."}, ...]
     
     Returns:
-        List of generated nodes
+        Dict containing:
+        - nodes: List of generated nodes (if any)
+        - message: Agent's actual response message
+        - tool_results: Results from tool executions
     """
     try:
         # Load current metadata to provide context
@@ -320,13 +343,18 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
         assistant_message = ""
         tool_results = []
         
+        print(f"Processing response with {len(response.content)} content blocks")
+        
         for content_block in response.content:
+            print(f"Content block type: {content_block.type}")
             if content_block.type == "text":
                 assistant_message += content_block.text
+                print(f"Text content: {content_block.text[:100]}...")
             elif content_block.type == "tool_use":
                 # Handle tool calls
                 tool_name = content_block.name
                 tool_input = content_block.input
+                print(f"Tool call: {tool_name} with input: {tool_input}")
                 
                 if tool_name == "add_nodes_to_metadata":
                     # Execute the tool
@@ -406,19 +434,40 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
         
         # If nodes were generated via tool, return them
         if generated_nodes:
-            return generated_nodes
+            print(f"Returning generated nodes: {generated_nodes}")
+            return {
+                "nodes": generated_nodes,
+                "message": assistant_message,
+                "tool_results": tool_results
+            }
         
         # Otherwise, try to parse JSON from the assistant message
         try:
             import re
             json_match = re.search(r'\[.*\]', assistant_message, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                parsed_nodes = json.loads(json_match.group())
+                return {
+                    "nodes": parsed_nodes,
+                    "message": assistant_message,
+                    "tool_results": tool_results
+                }
         except json.JSONDecodeError:
             pass
-        return None
+        
+        # Return response even if no nodes were generated
+        print(f"Returning response with message: {assistant_message[:100]}...")
+        return {
+            "nodes": None,
+            "message": assistant_message,
+            "tool_results": tool_results
+        }
     except Exception as e:
         print(f"Error generating nodes: {e}")
         import traceback
         traceback.print_exc()
-        return None
+        return {
+            "nodes": None,
+            "message": f"I encountered an error while processing your request: {str(e)}",
+            "tool_results": []
+        }

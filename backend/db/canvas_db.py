@@ -175,16 +175,22 @@ class CanvasDB:
             print(f"Synced {len(ids)} edges to ChromaDB")
     
     def _sync_files(self, canvas_path: Path):
-        """Sync file contents from nodes/ directory to ChromaDB."""
+        """Sync file contents from nodes/ directory and root to ChromaDB."""
         nodes_dir = canvas_path / "nodes"
         
-        if not nodes_dir.exists():
-            print(f"No nodes/ directory found at {nodes_dir}")
-            return
+        # Get files from nodes directory if it exists
+        files_list = []
+        if nodes_dir.exists():
+            file_paths = list(nodes_dir.rglob("*"))
+            files_list.extend([f for f in file_paths if f.is_file()])
         
-        # Walk through all files in nodes directory
-        file_paths = list(nodes_dir.rglob("*"))
-        files_list = [f for f in file_paths if f.is_file()]
+        # Also get files from canvas root (where .py files are created)
+        root_files = list(canvas_path.glob("*.py"))
+        files_list.extend(root_files)
+        
+        if not files_list:
+            print(f"No files found in {canvas_path}")
+            return
         
         ids = []
         documents = []

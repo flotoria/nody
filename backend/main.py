@@ -65,6 +65,16 @@ async def startup_event():
         _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
         print("Node generation agent initialized")
         
+        # Sync canvas data to ChromaDB for semantic search
+        try:
+            from db.canvas_db import CanvasDB
+            canvas_db = CanvasDB()
+            canvas_db.sync_from_files(CANVAS_DIR)
+            print(f"Synced canvas data from {CANVAS_DIR}")
+        except Exception as e:
+            print(f"Warning: Failed to sync canvas data to ChromaDB: {e}")
+            print("Semantic search may return zero results until files are indexed")
+        
         print("All services initialized successfully")
     except Exception as e:
         print(f"Failed to initialize services: {e}")
@@ -1214,7 +1224,15 @@ async def chat_nodes(request: NodeChatRequest):
             anthropic_messages.append({"role": msg.role, "content": msg.content})
         
         # Generate nodes using Anthropic with agent config
-        generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        agent_response = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        
+        # Extract the agent's message and generated nodes from response
+        generated_nodes = agent_response.get("nodes") if agent_response and isinstance(agent_response, dict) else None
+        agent_message = agent_response.get("message", "I've processed your request.") if agent_response and isinstance(agent_response, dict) else "I've processed your request."
+        tool_results = agent_response.get("tool_results", []) if agent_response and isinstance(agent_response, dict) else []
+        
+        print(f"Agent message: {agent_message}")
+        print(f"Generated nodes: {generated_nodes}")
         
         # Create files and generate code for any new nodes
         if generated_nodes:
@@ -1242,10 +1260,14 @@ async def chat_nodes(request: NodeChatRequest):
                 print(f"Error generating edges between nodes: {e}")
                 # Don't fail the whole request if edge generation fails
         
-        # Create response message
-        assistant_message = "I've analyzed your conversation and generated nodes with code and edges for your canvas."
-        if generated_nodes:
-            assistant_message += f" I've created {len(generated_nodes)} nodes with generated code and automatic connections to help you build what you described."
+        # Use the agent's actual message, or create a helpful message based on what happened
+        if not agent_message or agent_message == "I've processed your request.":
+            if generated_nodes:
+                assistant_message = f"I've created {len(generated_nodes)} new node(s) on your canvas."
+            else:
+                assistant_message = agent_message if agent_message else "I've processed your request."
+        else:
+            assistant_message = agent_message
         
         return NodeChatResponse(
             message=assistant_message,
