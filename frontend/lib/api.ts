@@ -48,6 +48,7 @@ export interface NodeMetadata {
   description: string
   x: number
   y: number
+  category?: string
 }
 
 export interface ChatMessage {
