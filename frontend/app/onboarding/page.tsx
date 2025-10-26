@@ -106,14 +106,31 @@ export default function OnboardingPage() {
     }
   }, [])
 
-  const handleChooseFolder = () => {
-    fileInputRef.current?.click()
+  const [availableProjects, setAvailableProjects] = useState<Array<{ name: string; path: string; lastModified: string; fileCount: number }>>([])
+  const [loadingProjects, setLoadingProjects] = useState(true)
+  const [showProjectNameModal, setShowProjectNameModal] = useState(false)
+  const [newProjectName, setNewProjectName] = useState("")
+
+  const loadAvailableProjects = async () => {
+    try {
+      const response = await fetch('/api/projects')
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableProjects(data.projects || [])
+      }
+    } catch (error) {
+      console.error('Failed to load projects:', error)
+    } finally {
+      setLoadingProjects(false)
+    }
   }
 
-  const handleFilesChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    setSelectedFolderCount(files.length)
+  useEffect(() => {
+    loadAvailableProjects()
+  }, [])
+
+  const handleOpenProject = (projectName: string) => {
+    router.push(`/p/${projectName}`)
   }
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
@@ -190,6 +207,9 @@ export default function OnboardingPage() {
         return
       }
 
+      // Get the project name from the preparation response
+      const projectName = preparation.project_name || 'generated-project'
+
       const result = await FileAPI.runProject()
       if (!result.success) {
         window.alert("Project generation did not start. Please review the output panel for more details.")
@@ -197,25 +217,76 @@ export default function OnboardingPage() {
       }
 
       window.alert(`${preparation.message} Redirecting you to the workspace...`)
-      router.push("/")
+      router.push(`/p/${projectName}`)
     } catch (error) {
       console.error("Failed to trigger project generation:", error)
+
+      // Check if the error is because project already exists
+      if (error.message.includes("already exists")) {
+        // Extract project name from error message
+        const match = error.message.match(/Project '([^']+)' already exists/)
+        if (match) {
+          const existingProjectName = match[1]
+          window.alert(`Project '${existingProjectName}' already exists. Redirecting to existing project...`)
+          router.push(`/p/${existingProjectName}`)
+          return
+        }
+      }
+
       window.alert("Unable to start project generation. Please try again.")
     } finally {
       setIsGenerating(false)
     }
   }
 
-  const handleStartEmpty = async () => {
+  const handleStartEmpty = () => {
+    setShowProjectNameModal(true)
+  }
+
+  const handleCreateEmptyProject = async () => {
+    if (!newProjectName.trim()) {
+      window.alert("Please enter a project name")
+      return
+    }
+
+    // Validate project name (no spaces, special characters)
+    const sanitizedName = newProjectName.trim().replace(/[^a-zA-Z0-9_-]/g, '_')
+    if (sanitizedName !== newProjectName.trim()) {
+      window.alert("Project name can only contain letters, numbers, underscores, and hyphens")
+      return
+    }
+
+    // Additional validation
+    if (sanitizedName === 'undefined' || sanitizedName === 'null' || sanitizedName === '') {
+      window.alert("Please enter a valid project name")
+      return
+    }
+
+    console.log('Creating project with name:', sanitizedName)
+
     try {
-      // Clear all canvas data
-      await FileAPI.clearCanvas()
-      
-      // Navigate to main page
-      router.push("/")
+      // Create project directory and basic files
+      const response = await fetch(`/api/projects/${sanitizedName}/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: sanitizedName })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to create project')
+      }
+
+      // Navigate to the new project
+      router.push(`/p/${sanitizedName}`)
     } catch (error) {
-      console.error("Failed to clear canvas:", error)
-      window.alert("Unable to clear canvas. Please try again.")
+      console.error("Failed to create project:", error)
+      window.alert(`Unable to create project: ${error.message}`)
+    } finally {
+      setShowProjectNameModal(false)
+      setNewProjectName("")
     }
   }
 
@@ -299,36 +370,66 @@ export default function OnboardingPage() {
             </p>
           </div>
 
-          <Card
-            role="button"
-            aria-label="Load an existing project"
-            onClick={handleChooseFolder}
-            className="group neu-raised neu-hover neu-hover-strong neu-active hover-glow-primary bg-card/80 backdrop-blur border px-4 cursor-pointer transition-all"
-          >
-            <CardContent className="py-5 flex items-center justify-between gap-4">
+          <Card className="group neu-raised neu-hover neu-hover-strong neu-active hover-glow-primary bg-card/80 backdrop-blur border px-4 transition-all">
+            <CardHeader className="gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg neu-raised neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
                   <FolderOpen className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <div className="text-base font-semibold">Open Existing Project</div>
-                  <div className="text-xs text-muted-foreground">
-                    Load an existing project from your computer.
-                    {selectedFolderCount !== null && ` (${selectedFolderCount} file(s) selected)`}
-                  </div>
+                  <CardTitle className="text-base">Available Projects</CardTitle>
+                  <CardDescription>
+                    Open an existing project from your workspace.
+                  </CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  // @ts-expect-error - Non-standard but supported in Chromium-based browsers
-                  webkitdirectory=""
-                  multiple
-                  className="hidden"
-                  onChange={handleFilesChosen}
-                />
-              </div>
+            </CardHeader>
+            <CardContent className="space-y-4 pb-6">
+              {loadingProjects ? (
+                <div className="text-center py-8">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-muted-foreground">Loading projects...</p>
+                </div>
+              ) : availableProjects.length === 0 ? (
+                <div className="text-center py-8">
+                  <FolderOpen className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">No projects found</h3>
+                  <p className="text-muted-foreground">
+                    No existing projects found in your workspace. Create a new project below.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {availableProjects.map((project) => (
+                    <Card
+                      key={project.name}
+                      role="button"
+                      aria-label={`Open project ${project.name}`}
+                      onClick={() => handleOpenProject(project.name)}
+                      className="group neu-raised-sm neu-hover neu-active hover-glow-primary bg-card/60 backdrop-blur border px-4 cursor-pointer transition-all"
+                    >
+                      <CardContent className="py-4 flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 rounded-lg neu-raised-sm neu-icon-hover neu-active bg-primary/15 flex items-center justify-center shrink-0">
+                            <FolderOpen className="w-4 h-4 text-primary" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-semibold">{project.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {project.fileCount} files • Modified {new Date(project.lastModified).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" className="neu-raised-sm neu-hover neu-active">
+                            Open
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -406,7 +507,7 @@ export default function OnboardingPage() {
                             <div className={`relative max-w-[80%] rounded-lg px-4 py-3 text-sm ${message.role === "user"
                               ? "bg-primary text-primary-foreground rounded-br-none"
                               : "bg-neutral-900 text-neutral-100 border border-border shadow-sm rounded-bl-none"
-                            }`}>
+                              }`}>
                               {message.content}
                             </div>
                           </div>
@@ -532,6 +633,50 @@ export default function OnboardingPage() {
           </Card>
         </div>
       </div>
+
+      {/* Project Name Modal */}
+      {showProjectNameModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle>Create New Project</CardTitle>
+              <CardDescription>
+                Enter a name for your new empty project
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                placeholder="my-awesome-project"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleCreateEmptyProject()
+                  }
+                }}
+                autoFocus
+              />
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowProjectNameModal(false)
+                    setNewProjectName("")
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateEmptyProject}
+                  disabled={!newProjectName.trim()}
+                >
+                  Create Project
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

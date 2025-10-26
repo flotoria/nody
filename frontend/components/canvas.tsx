@@ -90,6 +90,7 @@ interface CanvasProps {
   onNodeDrop?: (nodeData: any, position: { x: number; y: number }) => void
   onDataChange?: (nodes: ApiFileNode[], metadata: Record<string, NodeMetadata>) => void
   onMetadataUpdate?: (metadata: Record<string, NodeMetadata>) => void
+  projectName?: string
 }
 
 type FileNodeData = {
@@ -143,9 +144,8 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
 
   return (
     <div
-      className={`relative rounded-2xl border bg-card/90 shadow-lg transition-all ${
-        selected ? "ring-2 ring-primary/60 border-primary/40" : "border-border/40"
-      }`}
+      className={`relative rounded-2xl border bg-card/90 shadow-lg transition-all ${selected ? "ring-2 ring-primary/60 border-primary/40" : "border-border/40"
+        }`}
       style={{ width: NODE_WIDTH }}
     >
       <NodeHandles isConnectable={isConnectable} />
@@ -219,9 +219,8 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
 
   return (
     <div
-      className={`relative rounded-2xl border-2 bg-primary/10 backdrop-blur-sm transition-all ${
-        selected ? "border-primary/60" : "border-primary/30"
-      }`}
+      className={`relative rounded-2xl border-2 bg-primary/10 backdrop-blur-sm transition-all ${selected ? "border-primary/60" : "border-primary/30"
+        }`}
       style={{ width: data.width, height }}
     >
       <NodeResizer
@@ -282,9 +281,8 @@ FolderNodeComponent.displayName = "FolderNodeComponent"
 const GenericNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<GenericNodeData>) => {
   return (
     <div
-      className={`relative rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all ${
-        selected ? "ring-2 ring-primary/50 border-primary/30" : "border-border/30"
-      }`}
+      className={`relative rounded-2xl border bg-card/90 px-4 py-3 shadow-md transition-all ${selected ? "ring-2 ring-primary/50 border-primary/30" : "border-border/30"
+        }`}
       style={{ width: 220 }}
     >
       <NodeHandles isConnectable={isConnectable} />
@@ -305,7 +303,8 @@ const nodeTypes = {
   genericNode: GenericNodeComponent,
 } satisfies NodeTypes
 
-function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate }: CanvasProps) {
+function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdate, projectName }: CanvasProps) {
+  console.log('CanvasInner: projectName received:', projectName)
   const [flowNodes, setFlowNodes, onNodesChangeBase] = useNodesState([])
   const [flowEdges, setFlowEdges, onEdgesChange] = useEdgesState<Edge[]>([])
   const [fileRecords, setFileRecords] = useState<ApiFileNode[]>([])
@@ -320,10 +319,27 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   const [pendingFilePosition, setPendingFilePosition] = useState<{ x: number; y: number } | null>(null)
   const [pendingFolderPosition, setPendingFolderPosition] = useState<{ x: number; y: number } | null>(null)
 
+  // Helper function to transform project-specific file data to ApiFileNode format
+  const transformFiles = useCallback((files: any[]): ApiFileNode[] => {
+    return files.map(file => ({
+      id: file.id,
+      type: "file",
+      label: file.filePath || file.id,
+      x: file.x || 100,
+      y: file.y || 100,
+      status: "saved",
+      filePath: file.filePath,
+      fileType: file.fileType,
+      content: file.content || "",
+      description: file.description || "",
+      parentFolder: file.parentFolder
+    }))
+  }, [])
+
   // Custom onNodesChange handler to detect resize changes
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     onNodesChangeBase(changes)
-    
+
     // Handle resize changes for folders (optimized for smoothness)
     for (const change of changes) {
       if (change.type === 'dimensions' && change.dimensions) {
@@ -332,22 +348,22 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           // Update folder dimensions in real-time (smooth UI update)
           const width = change.dimensions.width
           const height = change.dimensions.height
-          
+
           // Update the node's style immediately for smooth resizing
-          setFlowNodes(prevNodes => 
-            prevNodes.map(n => 
-              n.id === change.id 
+          setFlowNodes(prevNodes =>
+            prevNodes.map(n =>
+              n.id === change.id
                 ? { ...n, style: { ...n.style, width, height } }
                 : n
             )
           )
-          
+
           // Debounce backend updates to avoid performance issues
           // Only update backend when resize is complete (not during dragging)
           if (change.dimensions.width && change.dimensions.height) {
             // Use setTimeout to debounce rapid resize events
             setTimeout(() => {
-              FileAPI.updateFolder(change.id, { width, height }).catch(console.error)
+              FileAPI.updateFolder(change.id, { width, height }, projectName).catch(console.error)
             }, 100)
           }
         }
@@ -373,25 +389,28 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     const loadData = async () => {
       try {
         const [files, metadataResponse, folders, edges] = await Promise.all([
-          FileAPI.getFiles(),
-          FileAPI.getMetadataRaw(),
-          FileAPI.getFolders(),
-          FileAPI.getEdges(),
+          FileAPI.getFiles(projectName),
+          FileAPI.getMetadataRaw(projectName),
+          FileAPI.getFolders(projectName),
+          FileAPI.getEdges(projectName),
         ])
         if (!mounted) return
-        
+
         // Parse raw metadata
         const metadata = JSON.parse(metadataResponse.content)
-        
+
+        // Transform project-specific file data to ApiFileNode format
+        const transformedFiles = transformFiles(files)
+
         // Only update if data has actually changed
         setFileRecords(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(files)) {
-            console.log('Canvas: Files updated from polling:', files)
-            return files
+          if (JSON.stringify(prev) !== JSON.stringify(transformedFiles)) {
+            console.log('Canvas: Files updated from polling:', transformedFiles)
+            return transformedFiles
           }
           return prev
         })
-        
+
         setMetadataRecords(prev => {
           if (JSON.stringify(prev) !== JSON.stringify(metadata)) {
             console.log('Canvas: Metadata updated from polling:', metadata)
@@ -399,7 +418,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           }
           return prev
         })
-        
+
         setFolderRecords(prev => {
           if (JSON.stringify(prev) !== JSON.stringify(folders)) {
             console.log('Canvas: Folders updated from polling:', folders)
@@ -407,7 +426,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           }
           return prev
         })
-        
+
         setEdgeRecords(prev => {
           if (JSON.stringify(prev) !== JSON.stringify(edges)) {
             console.log('Canvas: Edges updated from polling:', edges)
@@ -462,12 +481,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     const refreshData = async () => {
       try {
         const [files, metadata, folders, edges] = await Promise.all([
-          FileAPI.getFiles(),
-          FileAPI.getMetadata(),
-          FileAPI.getFolders(),
-          FileAPI.getEdges(),
+          FileAPI.getFiles(projectName),
+          FileAPI.getMetadata(projectName),
+          FileAPI.getFolders(projectName),
+          FileAPI.getEdges(projectName),
         ])
-        setFileRecords(files)
+        setFileRecords(transformFiles(files))
         setMetadataRecords(metadata)
         setFolderRecords(folders)
         setEdgeRecords(edges)
@@ -475,7 +494,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         console.error("Failed to refresh data:", error)
       }
     }
-    
+
     // Refresh when metadata records change
     if (Object.keys(metadataRecords).length > 0) {
       refreshData()
@@ -495,11 +514,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       try {
         await FileAPI.deleteFile(id)
         const [files, metadata, folders] = await Promise.all([
-          FileAPI.getFiles(),
-          FileAPI.getMetadata(),
-          FileAPI.getFolders(),
+          FileAPI.getFiles(projectName),
+          FileAPI.getMetadata(projectName),
+          FileAPI.getFolders(projectName),
         ])
-        setFileRecords(files)
+        setFileRecords(transformFiles(files))
         setMetadataRecords(metadata)
         setFolderRecords(folders)
         toast.success("File deleted")
@@ -518,7 +537,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       const confirmMessage = containedFileCount > 0
         ? `Delete "${folder?.name ?? "this folder"}" and all ${containedFileCount} file(s) inside?`
         : `Delete "${folder?.name ?? "this folder"}"?`
-      
+
       const confirmed =
         typeof window === "undefined" ||
         window.confirm(confirmMessage)
@@ -527,11 +546,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       try {
         await FileAPI.deleteFolder(id)
         const [files, metadata, folders] = await Promise.all([
-          FileAPI.getFiles(),
-          FileAPI.getMetadata(),
-          FileAPI.getFolders(),
+          FileAPI.getFiles(projectName),
+          FileAPI.getMetadata(projectName),
+          FileAPI.getFolders(projectName),
         ])
-        setFileRecords(files)
+        setFileRecords(transformFiles(files))
         setMetadataRecords(metadata)
         setFolderRecords(folders)
         toast.success("Folder deleted")
@@ -551,10 +570,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         if (result.success) {
           toast.success("Code generated successfully")
           const [files, metadata] = await Promise.all([
-            FileAPI.getFiles(),
-            FileAPI.getMetadata(),
+            FileAPI.getFiles(projectName),
+            FileAPI.getMetadata(projectName),
           ])
-          setFileRecords(files)
+          setFileRecords(transformFiles(files))
           setMetadataRecords(metadata)
         } else {
           toast.error("Failed to generate code")
@@ -596,7 +615,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           fileType,
           content: "",
           description: description ?? "",
-        })
+        }, projectName)
 
         if (!result.success || !result.data) {
           toast.error(result.error || "Failed to create file")
@@ -604,13 +623,13 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         }
 
         const position = pendingFilePosition ?? defaultFilePosition()
-        await FileAPI.updateFilePosition(result.data.id, position.x, position.y)
+        await FileAPI.updateFilePosition(result.data.id, position.x, position.y, projectName)
 
         const [files, metadata] = await Promise.all([
-          FileAPI.getFiles(),
-          FileAPI.getMetadata(),
+          FileAPI.getFiles(projectName),
+          FileAPI.getMetadata(projectName),
         ])
-        setFileRecords(files)
+        setFileRecords(transformFiles(files))
         setMetadataRecords(metadata)
         toast.success("File created")
       } catch (error) {
@@ -633,10 +652,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         const folderX = pendingFolderPosition.x - width / 2
         const folderY = pendingFolderPosition.y - FOLDER_HEADER_HEIGHT / 2
 
-        const created = await FileAPI.createFolder(folderName, folderX, folderY, width, height)
+        console.log('Canvas: Creating folder with projectName:', projectName)
+        const created = await FileAPI.createFolder(folderName, folderX, folderY, width, height, projectName)
         const [folders, metadata] = await Promise.all([
-          FileAPI.getFolders(),
-          FileAPI.getMetadata(),
+          FileAPI.getFolders(projectName),
+          FileAPI.getMetadata(projectName),
         ])
         setFolderRecords(folders)
         setMetadataRecords(metadata)
@@ -710,10 +730,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         },
         draggable: true,
         selectable: true,
-        style: { 
-          width: folder.width, 
+        style: {
+          width: folder.width,
           height: height,
-          zIndex: 1 
+          zIndex: 1
         },
         connectable: true,
       })
@@ -798,8 +818,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           to: pendingEdge.to,
           type: edgeData.type,
           description: edgeData.description,
-        })
-        const edges = await FileAPI.getEdges()
+        }, projectName)
+        const edges = await FileAPI.getEdges(projectName)
         setEdgeRecords(edges)
         toast.success("Edge created")
       } catch (error) {
@@ -822,7 +842,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         toast.error("Failed to delete edge")
       }
     }
-    const updatedEdges = await FileAPI.getEdges()
+    const updatedEdges = await FileAPI.getEdges(projectName)
     setEdgeRecords(updatedEdges)
   }, [])
 
@@ -845,9 +865,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         }
       }
       const [files, metadata, folders] = await Promise.all([
-        FileAPI.getFiles(),
-        FileAPI.getMetadata(),
-        FileAPI.getFolders(),
+        FileAPI.getFiles(projectName),
+        FileAPI.getMetadata(projectName),
+        FileAPI.getFolders(projectName),
       ])
       setFileRecords(files)
       setMetadataRecords(metadata)
@@ -861,9 +881,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     refreshInFlight.current = true
     try {
       const [files, metadata, folders] = await Promise.all([
-        FileAPI.getFiles(),
-        FileAPI.getMetadata(),
-        FileAPI.getFolders(),
+        FileAPI.getFiles(projectName),
+        FileAPI.getMetadata(projectName),
+        FileAPI.getFolders(projectName),
       ])
       setFileRecords(files)
       setMetadataRecords(metadata)
@@ -923,7 +943,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           if (node.style?.height) {
             updates.height = node.style.height
           }
-          await FileAPI.updateFolder(folderId, updates)
+          await FileAPI.updateFolder(folderId, updates, projectName)
           await refreshMetadata()
         } catch (error) {
           console.error("Failed to update folder:", error)
@@ -935,9 +955,9 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           prev.map((generic) =>
             generic.id === node.id
               ? {
-                  ...generic,
-                  position: node.position,
-                }
+                ...generic,
+                position: node.position,
+              }
               : generic,
           ),
         )
@@ -1124,7 +1144,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       {expandedNode && (() => {
         const node = fileRecords.find(n => n.id === expandedNode)
         if (!node) return null
-        
+
         return (
           <CodeEditor
             content={node.content || ''}

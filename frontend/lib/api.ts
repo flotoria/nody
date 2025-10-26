@@ -11,6 +11,7 @@ export interface FileNode {
   filePath?: string
   fileType?: string
   content?: string
+  description?: string
   isExpanded?: boolean
   isModified?: boolean
   parentFolder?: string
@@ -141,7 +142,16 @@ export interface PrepareProjectResult {
 }
 
 export class FileAPI {
-  static async getFiles(): Promise<FileNode[]> {
+  static async getFiles(projectName?: string): Promise<FileNode[]> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/files`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch project files: ${response.status}`)
+      }
+      return response.json()
+    }
+    
+    // Fallback to global files for backward compatibility
     const response = await fetch(`${API_BASE_URL}/files`)
     if (!response.ok) {
       throw new Error('Failed to fetch files')
@@ -170,7 +180,90 @@ export class FileAPI {
     }
   }
 
-  static async createFile(fileCreate: FileCreate): Promise<{ success: boolean; data?: FileNode; error?: string }> {
+  static async createFile(fileCreate: FileCreate, projectName?: string): Promise<{ success: boolean; data?: FileNode; error?: string }> {
+    if (projectName) {
+      // For project-specific file creation, we need to create the file in the project directory
+      // and update the project's metadata
+      try {
+        // First, get the current project metadata
+        const metadata = await this.getMetadata(projectName)
+        
+        // Generate a unique file ID
+        const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        
+        // Create file metadata entry
+        const fileMetadata = {
+          id: fileId,
+          type: "file",
+          fileName: fileCreate.filePath,
+          fileType: fileCreate.fileType,
+          description: fileCreate.description || "",
+          x: 100,
+          y: 100,
+          content: fileCreate.content || ""
+        }
+        
+        // Update metadata with new file
+        metadata[fileId] = fileMetadata
+        
+        // Save updated metadata
+        const response = await fetch(`${API_BASE_URL}/projects/${projectName}/metadata`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(metadata),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          return { 
+            success: false, 
+            error: errorData.detail || 'Failed to create project file' 
+          }
+        }
+        
+        // Create the actual file in the project directory
+        const fileResponse = await fetch(`${API_BASE_URL}/projects/${projectName}/files/${fileId}/content`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content: fileCreate.content || "" }),
+        })
+        
+        if (!fileResponse.ok) {
+          const errorData = await fileResponse.json().catch(() => ({}))
+          return { 
+            success: false, 
+            error: errorData.detail || 'Failed to create project file content' 
+          }
+        }
+        
+        return { 
+          success: true, 
+          data: {
+            id: fileId,
+            type: "file",
+            label: fileCreate.filePath,
+            x: 100,
+            y: 100,
+            status: "saved",
+            filePath: fileCreate.filePath,
+            fileType: fileCreate.fileType,
+            content: fileCreate.content || "",
+            description: fileCreate.description || ""
+          }
+        }
+      } catch (error) {
+        return { 
+          success: false, 
+          error: `Failed to create project file: ${error}` 
+        }
+      }
+    }
+    
+    // Fallback to global file creation
     const response = await fetch(`${API_BASE_URL}/files`, {
       method: 'POST',
       headers: {
@@ -198,7 +291,33 @@ export class FileAPI {
     }
   }
 
-  static async updateFilePosition(fileId: string, x: number, y: number): Promise<void> {
+  static async updateFilePosition(fileId: string, x: number, y: number, projectName?: string): Promise<void> {
+    if (projectName) {
+      // For project-specific position updates, we need to update the metadata
+      try {
+        const metadata = await this.getMetadata(projectName)
+        if (metadata[fileId]) {
+          metadata[fileId].x = x
+          metadata[fileId].y = y
+          
+          const response = await fetch(`${API_BASE_URL}/projects/${projectName}/metadata`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(metadata),
+          })
+          
+          if (!response.ok) {
+            throw new Error('Failed to update project file position')
+          }
+          return
+        }
+      } catch (error) {
+        throw new Error(`Failed to update project file position: ${error}`)
+      }
+    }
+    
     const response = await fetch(`${API_BASE_URL}/files/${fileId}/position?x=${x}&y=${y}`, {
       method: 'PUT',
     })
@@ -207,8 +326,27 @@ export class FileAPI {
     }
   }
 
-  static async updateFileDescription(fileId: string, description: string): Promise<void> {
-    console.log('FileAPI: updateFileDescription called', { fileId, description })
+  static async updateFileDescription(fileId: string, description: string, projectName?: string): Promise<void> {
+    console.log('FileAPI: updateFileDescription called', { fileId, description, projectName })
+    
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/files/${fileId}/description`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ description }),
+      })
+      console.log('FileAPI: project response status:', response.status, response.ok)
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('FileAPI: project response error:', errorText)
+        throw new Error('Failed to update project file description')
+      }
+      console.log('FileAPI: project updateFileDescription successful')
+      return
+    }
+    
     const response = await fetch(`${API_BASE_URL}/files/${fileId}/description`, {
       method: 'PUT',
       headers: {
@@ -225,7 +363,15 @@ export class FileAPI {
     console.log('FileAPI: updateFileDescription successful')
   }
 
-  static async getMetadataRaw(): Promise<{ content: string }> {
+  static async getMetadataRaw(projectName?: string): Promise<{ content: string }> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/metadata/raw`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch project metadata: ${response.status}`)
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/metadata/raw`)
     if (!response.ok) {
       throw new Error('Failed to fetch metadata')
@@ -233,7 +379,15 @@ export class FileAPI {
     return response.json()
   }
 
-  static async getMetadata(): Promise<Record<string, NodeMetadata>> {
+  static async getMetadata(projectName?: string): Promise<Record<string, NodeMetadata>> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/metadata`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch project metadata')
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/metadata`)
     if (!response.ok) {
       throw new Error('Failed to fetch metadata')
@@ -241,7 +395,15 @@ export class FileAPI {
     return response.json()
   }
 
-  static async getEdges(): Promise<Array<{ from: string; to: string; type?: string; description?: string }>> {
+  static async getEdges(projectName?: string): Promise<Array<{ from: string; to: string; type?: string; description?: string }>> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/edges`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch project edges')
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/edges`)
     if (!response.ok) {
       throw new Error('Failed to fetch edges')
@@ -249,7 +411,22 @@ export class FileAPI {
     return response.json()
   }
 
-  static async createEdge(edgeData: { from: string; to: string; type: string; description?: string }): Promise<{ message: string; edge: any }> {
+  static async createEdge(edgeData: { from: string; to: string; type: string; description?: string }, projectName?: string): Promise<{ message: string; edge: any }> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/edges`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(edgeData),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || 'Failed to create project edge')
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/edges`, {
       method: 'POST',
       headers: {
@@ -278,8 +455,17 @@ export class FileAPI {
     return response.json()
   }
 
-  static async getOutput(): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
+  static async getOutput(projectName?: string): Promise<{ messages: Array<{ timestamp: string; level: string; message: string }> }> {
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+    
+    if (projectName) {
+      const response = await fetch(`${baseUrl}/projects/${projectName}/output`).catch(() => null)
+      if (!response || !response.ok) {
+        return { messages: [] }
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${baseUrl}/output`).catch(() => null)
     if (!response || !response.ok) {
       return { messages: [] }
@@ -289,7 +475,15 @@ export class FileAPI {
 
   // ==================== FOLDER OPERATIONS ====================
 
-  static async getFolders(): Promise<FolderNode[]> {
+  static async getFolders(projectName?: string): Promise<FolderNode[]> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/folders`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch project folders: ${response.status}`)
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/folders`)
     if (!response.ok) {
       throw new Error('Failed to fetch folders')
@@ -297,7 +491,23 @@ export class FileAPI {
     return response.json()
   }
 
-  static async createFolder(name: string, x: number = 100, y: number = 100, width: number = 600, height: number = 400): Promise<FolderNode> {
+  static async createFolder(name: string, x: number = 100, y: number = 100, width: number = 600, height: number = 400, projectName?: string): Promise<FolderNode> {
+    console.log('FileAPI.createFolder called with projectName:', projectName)
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/folders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, x, y, width, height }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || 'Failed to create project folder')
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/folders`, {
       method: 'POST',
       headers: {
@@ -312,7 +522,22 @@ export class FileAPI {
     return response.json()
   }
 
-  static async updateFolder(folderId: string, updates: Partial<FolderNode>): Promise<{ message: string }> {
+  static async updateFolder(folderId: string, updates: Partial<FolderNode>, projectName?: string): Promise<{ message: string }> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/folders/${folderId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || 'Failed to update project folder')
+      }
+      return response.json()
+    }
+    
     const response = await fetch(`${API_BASE_URL}/folders/${folderId}`, {
       method: 'PUT',
       headers: {
@@ -395,7 +620,22 @@ export class FileAPI {
     return { success: true, data }
   }
 
-  static async runProject(): Promise<{ success: boolean; progress?: string[] }> {
+  static async runProject(projectName?: string): Promise<{ success: boolean; progress?: string[] }> {
+    if (projectName) {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectName}/run`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return { 
+          success: false, 
+          progress: errorData.progress || [] 
+        }
+      }
+      const data = await response.json()
+      return { success: true, progress: data.progress || [] }
+    }
+    
     const response = await fetch(`${API_BASE_URL}/run`, {
       method: 'POST',
     })

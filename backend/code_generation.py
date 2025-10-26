@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List
 
 from fastapi import HTTPException
 
-from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR, BACKEND_ROOT
+from config import LETTA_API_KEY, LETTA_BASE_URL, LETTA_METADATA_SYSTEM_PROMPT, EDGES_FILE, CANVAS_DIR, PROJECTS_DIR, BACKEND_ROOT
 from models import FileNode
 from agents.file_system_agent import create_file_system_agent
 from utils import extract_structured_payload, sanitize_plan, position_for_index, infer_file_type_from_name
@@ -189,6 +189,20 @@ class CodeGenerationService:
         from utils import fallback_metadata_plan
         return fallback_metadata_plan(project_spec)
     
+    def generate_project_name(self, project_spec: Dict[str, Any]) -> str:
+        """Generate a project name from the project specification."""
+        title = project_spec.get("title", "generated-project")
+        # Sanitize the title to create a valid project name
+        import re
+        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', title.lower())
+        sanitized = re.sub(r'_+', '_', sanitized)  # Replace multiple underscores with single
+        sanitized = sanitized.strip('_')  # Remove leading/trailing underscores
+        
+        if not sanitized or sanitized == 'generated_project':
+            sanitized = 'generated-project'
+        
+        return sanitized
+    
     async def prepare_project_workspace(self, project_spec: Dict[str, Any]) -> Dict[str, Any]:
         """Transform the saved project spec into canvas metadata and placeholder node files."""
         plan = await self.plan_workspace_with_letta(project_spec)
@@ -198,15 +212,27 @@ class CodeGenerationService:
         if not isinstance(files_plan, list) or not files_plan:
             raise HTTPException(status_code=502, detail="Metadata planner did not produce any files")
 
+        # Generate a project name from the spec
+        project_name = self.generate_project_name(project_spec)
+        
+        # Create project directory structure
+        project_dir = PROJECTS_DIR / project_name
+        nodes_dir = project_dir / "nodes"
+        
+        # Check if project already exists
+        if project_dir.exists():
+            raise HTTPException(status_code=400, detail=f"Project '{project_name}' already exists")
+        
+        # Create project directory and nodes subdirectory
+        project_dir.mkdir(parents=True, exist_ok=True)
+        nodes_dir.mkdir(parents=True, exist_ok=True)
+
         metadata_payload: Dict[str, Dict[str, Any]] = {}
         created_files: List[Dict[str, Any]] = []
         valid_edges: List[Dict[str, Any]] = [
             edge for edge in edges_plan_raw
             if isinstance(edge, dict) and edge.get("from") and edge.get("to")
         ]
-
-        # Clear existing node files
-        file_db.files_db.clear()
 
         for index, file_entry in enumerate(files_plan):
             if not isinstance(file_entry, dict):
@@ -239,25 +265,15 @@ class CodeGenerationService:
                 "x": x,
                 "y": y,
                 "fileName": file_name,
+                "fileType": infer_file_type_from_name(file_name),
+                "content": ""
             }
 
-            file_path = CANVAS_DIR / file_name
+            # Create file in project's nodes directory
+            file_path = nodes_dir / file_name
             file_path.parent.mkdir(parents=True, exist_ok=True)
             if not file_path.exists():
                 file_path.write_text("", encoding="utf-8")
-
-            file_db.files_db[node_id] = FileNode(
-                id=node_id,
-                label=label,
-                x=x,
-                y=y,
-                status="idle",
-                filePath=file_name,
-                fileType=infer_file_type_from_name(file_name),
-                content="",
-                isExpanded=False,
-                isModified=False,
-            )
 
             created_files.append({
                 "id": node_id,
@@ -268,11 +284,30 @@ class CodeGenerationService:
         if not metadata_payload:
             raise HTTPException(status_code=502, detail="No valid file definitions produced by planner")
 
-        file_db.save_metadata(metadata_payload)
-        self.save_edges(valid_edges)
+        # Save project-specific metadata
+        metadata_file = project_dir / "metadata.json"
+        with open(metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata_payload, f, indent=2)
+        
+        # Save project-specific edges
+        edges_file = project_dir / "edges.json"
+        with open(edges_file, 'w', encoding='utf-8') as f:
+            json.dump({"edges": valid_edges}, f, indent=2)
+        
+        # Create project-specific output.json
+        output_file = project_dir / "output.json"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump({"messages": []}, f, indent=2)
+        
+        # Create project-specific project-spec.json
+        project_spec_file = project_dir / "project-spec.json"
+        with open(project_spec_file, 'w', encoding='utf-8') as f:
+            json.dump(project_spec, f, indent=2)
 
         return {
             "message": "Project workspace prepared",
+            "project_name": project_name,
+            "project_path": str(project_dir),
             "files_created": len(created_files),
             "metadata_nodes": len(metadata_payload),
             "edges_created": len(valid_edges),
