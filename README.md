@@ -1,14 +1,12 @@
-# Nody VDE - Basic File Nodes
+# Nody VDE
+Nody is an AI-native Visual Development Environment (VDE) that replaces traditional file-based coding with node-based visual architecture. It lets developers visualize their entire codebase as interconnected nodes and edges, powered by AI-assisted code generation and project understanding. Built with Next.js, ReactFlow, FastAPI, and ChromaDB, Nody reimagines how modern developers build, iterate, and collaborate on software.
 
-This is the basic file node implementation for Nody, a Visual Development Environment. Each node represents a file that can be clicked to expand into a code editor.
 
 ## Features Implemented
 
 ✅ **Basic File Nodes**: Visual representation of files on canvas  
-✅ **Code Editor**: Click file nodes to expand and edit code  
-✅ **FastAPI Backend**: RESTful API for file operations  
-✅ **Real-time Editing**: Save changes directly to backend  
-✅ **File Management**: Create, read, update, delete files  
+✅ **Code Editor**: Click file nodes to expand and edit code    
+✅ **Node Management**: Create, read, update, delete files  
 
 ## Quick Start
 
@@ -58,18 +56,8 @@ The frontend will run on `http://localhost:3000`
 - CSS (.css)
 - Plain text
 
-## Next Steps
+## Demo
+https://youtu.be/AwTgNbW1djk?feature=shared
 
-This basic implementation provides the foundation for:
-- Strict nodes with code generation
-- AI-powered VibeCoding
-- Visual workflow execution
-- Real-time collaboration
-- Version control with visual diffing
-
-## Architecture
-
-- **Frontend**: Next.js + React + TypeScript + Tailwind CSS
-- **Backend**: FastAPI + Python
-- **Storage**: In-memory (demo) - ready for database integration
-- **Communication**: RESTful API with CORS support
+## YC video
+https://www.loom.com/share/8eae554ab88b4954b1cbcbec2030f767
