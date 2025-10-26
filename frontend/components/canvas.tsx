@@ -30,6 +30,7 @@ import { CodeEditor } from "@/components/code-editor"
 import { FileNamingModal } from "@/components/file-naming-modal"
 import { FolderNamingModal } from "@/components/folder-naming-modal"
 import { EdgeCreationModal } from "@/components/edge-creation-modal"
+import { NodeConfigurationModal, NodeConfiguration } from "@/components/node-configuration-modal"
 import {
   FileAPI,
   FileNode as ApiFileNode,
@@ -342,8 +343,14 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   const [customGenericNodes, setCustomGenericNodes] = useState<Node<GenericNodeData>[]>([])
   const [showFileModal, setShowFileModal] = useState(false)
   const [showFolderModal, setShowFolderModal] = useState(false)
+  const [showNodeConfigModal, setShowNodeConfigModal] = useState(false)
   const [pendingFilePosition, setPendingFilePosition] = useState<{ x: number; y: number } | null>(null)
   const [pendingFolderPosition, setPendingFolderPosition] = useState<{ x: number; y: number } | null>(null)
+  const [pendingNodeConfig, setPendingNodeConfig] = useState<{
+    type: string
+    position: { x: number; y: number }
+    label?: string
+  } | null>(null)
 
   // Custom onNodesChange handler to detect resize changes
   const onNodesChange = useCallback((changes: NodeChange[]) => {
@@ -1100,10 +1107,11 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
       if (node.type === "fileNode" && isFileNodeData(node.data)) {
         const fileId = node.id
         let { x, y } = node.position
+        const fileData = node.data as FileNodeData
 
         // If the file has a parent, convert relative position to absolute
-        if (node.data.parentFolder) {
-          const parentFolder = folderRecords.find(f => f.id === node.data.parentFolder)
+        if (fileData.parentFolder) {
+          const parentFolder = folderRecords.find(f => f.id === fileData.parentFolder)
           if (parentFolder) {
             x = x + parentFolder.x
             y = y + parentFolder.y
@@ -1130,7 +1138,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         })
 
         const targetFolderId = containingFolder ? containingFolder.id : null
-        const currentParent = node.data.parentFolder
+        const currentParent = fileData.parentFolder
 
         if (currentParent !== targetFolderId) {
           try {
@@ -1263,6 +1271,102 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     setShowFolderModal(true)
   }, [defaultFilePosition])
 
+  const handleNodeConfigure = useCallback(
+    async (config: NodeConfiguration) => {
+      if (!pendingNodeConfig) return
+
+      const { type, position, label: initialLabel } = pendingNodeConfig
+      const genericId = `generic-${Date.now()}`
+      const finalLabel = config.label || initialLabel || `${type} node`
+
+      if (type === "file" && config.fileName) {
+        // Create a file node
+        try {
+          const fileX = position.x - NODE_WIDTH / 2
+          const fileY = position.y - NODE_HEIGHT / 4
+          
+          const result = await FileAPI.createFile({
+            filePath: config.fileName,
+            fileType: config.fileType || "python",
+            content: "",
+            description: config.description,
+          })
+          
+          if (!result.success || !result.data) {
+            throw new Error(result.error || "Failed to create file")
+          }
+          
+          // Update position
+          await FileAPI.updateFilePosition(result.data.id, fileX, fileY)
+          
+          // Refresh data
+          const [files, metadata] = await Promise.all([
+            FileAPI.getFiles(),
+            FileAPI.getMetadata(),
+          ])
+          setFileRecords(files)
+          setMetadataRecords(metadata)
+          setSelectedNodeId(result.data.id)
+          onSelectNode(result.data.id)
+          toast.success("File node created successfully")
+        } catch (error) {
+          console.error("Failed to create file node:", error)
+          toast.error("Failed to create file node")
+        }
+      } else if (type === "folder") {
+        // Create a folder node
+        try {
+          const width = 640
+          const height = 420
+          const folderX = position.x - width / 2
+          const folderY = position.y - FOLDER_HEADER_HEIGHT / 2
+
+          const created = await FileAPI.createFolder(finalLabel, folderX, folderY, width, height)
+          const [folders, metadata] = await Promise.all([
+            FileAPI.getFolders(),
+            FileAPI.getMetadata(),
+          ])
+          setFolderRecords(folders)
+          setMetadataRecords(metadata)
+          setSelectedNodeId(created.id)
+          onSelectNode(created.id)
+          toast.success("Folder node created successfully")
+        } catch (error) {
+          console.error("Failed to create folder node:", error)
+          toast.error("Failed to create folder node")
+        }
+      } else {
+        // Create a generic node
+        const genericNode: Node<GenericNodeData> = {
+          id: genericId,
+          type: "genericNode",
+          position: {
+            x: position.x - 110,
+            y: position.y - 80,
+          },
+          data: {
+            kind: "generic",
+            label: finalLabel,
+            category: config.category,
+          },
+          draggable: true,
+          selectable: true,
+          connectable: true,
+          style: { zIndex: 2 },
+        }
+
+        setCustomGenericNodes((prev) => [...prev, genericNode])
+        setSelectedNodeId(genericId)
+        onSelectNode(genericId)
+        toast.success("Generic node created successfully")
+      }
+
+      // Reset pending config
+      setPendingNodeConfig(null)
+    },
+    [pendingNodeConfig, onSelectNode],
+  )
+
   // Listen for custom events to show modals
   useEffect(() => {
     const handleCreateFile = () => {
@@ -1332,33 +1436,18 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         return
       }
 
-      const genericId = `generic-${Date.now()}`
-      const label = payload.label || `${payload.type ?? "custom"} node`
-      const category = payload.type || "custom"
-
-      const genericNode: Node<GenericNodeData> = {
-        id: genericId,
-        type: "genericNode",
+      // For all other node types, show the configuration modal
+      setPendingNodeConfig({
+        type: payload.type || "custom",
         position: {
-          x: position.x - 110,
-          y: position.y - 80,
+          x: position.x,
+          y: position.y,
         },
-        data: {
-          kind: "generic",
-          label,
-          category,
-        },
-        draggable: true,
-        selectable: true,
-        connectable: true,
-        style: { zIndex: 2 },
-      }
-
-      setCustomGenericNodes((prev) => [...prev, genericNode])
-      setSelectedNodeId(genericId)
-      onSelectNode(genericId)
+        label: payload.label,
+      })
+      setShowNodeConfigModal(true)
     },
-    [onSelectNode, openCreateFileModal, screenToFlowPosition],
+    [openCreateFileModal, screenToFlowPosition],
   )
 
 
@@ -1467,6 +1556,17 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         onCreateEdge={handleEdgeCreate}
         fromNodeId={pendingEdge?.from || ""}
         toNodeId={pendingEdge?.to || ""}
+      />
+
+      <NodeConfigurationModal
+        isOpen={showNodeConfigModal}
+        onClose={() => {
+          setShowNodeConfigModal(false)
+          setPendingNodeConfig(null)
+        }}
+        onConfigure={handleNodeConfigure}
+        nodeType={pendingNodeConfig?.type || "custom"}
+        initialPosition={pendingNodeConfig?.position}
       />
     </div>
   )
