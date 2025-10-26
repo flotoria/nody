@@ -52,13 +52,12 @@ app.add_middleware(
 _client = None
 _agent = None
 _node_gen_client = None
-_node_gen_agent_config = None
 
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
-    global _client, _agent, _node_gen_client, _node_gen_agent_config
+    global _client, _agent, _node_gen_client
     try:
         # Initialize code generation service
         await code_generation_service.initialize()
@@ -69,7 +68,7 @@ async def startup_event():
         print(f"Letta agent initialized")
         
         # Initialize node generation agent
-        _node_gen_client, _node_gen_agent_config = create_node_generation_agent()
+        _node_gen_client = create_node_generation_agent()
         print("Node generation agent initialized")
         
         print("All services initialized successfully")
@@ -114,11 +113,19 @@ async def generate_node_code(node: dict):
         file_name = node.get("fileName", f"file_{node.get('id')}.py")
         description = node.get("description", "")
         
-        # Use the code generation service to generate code
-        code_content = await code_generation_service.generate_code_for_description(description, file_name)
+        # Extract just the filename without any path (to avoid nesting issues)
+        base_file_name = os.path.basename(file_name)
         
-        # Write code to file (always overwrite to ensure it has the right code)
-        file_path = os.path.join(CANVAS_DIR, "nodes", file_name)
+        # Use the code generation service to generate code
+        code_content = await code_generation_service.generate_code_for_description(description, base_file_name)
+        
+        # Write code to file at the correct location based on its folder
+        # CANVAS_DIR already points to canvas/nodes, so don't add it again
+        # Remove ALL "nodes/" prefixes to avoid nested paths
+        clean_file_name = file_name
+        while clean_file_name.startswith("nodes/"):
+            clean_file_name = clean_file_name[6:]
+        file_path = os.path.join(CANVAS_DIR, clean_file_name)
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code_content)
@@ -273,7 +280,7 @@ async def create_folder(folder_create: FolderCreate):
         # Generate unique folder ID
         folder_id = f"folder_{len([k for k in metadata.keys() if k.startswith('folder_')]) + 1}"
         
-        # Create actual directory in canvas/nodes
+        # Create actual directory - CANVAS_DIR already points to canvas/nodes
         folder_path = CANVAS_DIR / folder_create.name
         folder_path.mkdir(parents=True, exist_ok=True)
         print(f"Created directory: {folder_path}")
@@ -673,7 +680,7 @@ async def chat_nodes(request: NodeChatRequest):
     Returns:
         Chat response with generated nodes
     """
-    if not _node_gen_client or not _node_gen_agent_config:
+    if not _node_gen_client:
         raise HTTPException(status_code=503, detail="Node generation agent not initialized")
     
     try:
@@ -682,9 +689,8 @@ async def chat_nodes(request: NodeChatRequest):
         for msg in request.messages:
             anthropic_messages.append({"role": msg.role, "content": msg.content})
         
-        # Generate nodes using Letta agent
-        # Note: _node_gen_agent_config is actually the agent, not a config
-        generated_nodes, assistant_message = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
+        # Generate nodes using Anthropic SDK
+        generated_nodes, assistant_message = generate_nodes_from_conversation(_node_gen_client, anthropic_messages)
         
         # Nodes should already be saved by the tool
         # Generate code for each node

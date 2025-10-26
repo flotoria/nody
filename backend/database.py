@@ -26,7 +26,13 @@ class FileDatabase:
 
     def _resolve_file_path(self, file_name: str, node_meta: Dict[str, Any]) -> Path:
         """Resolve a file path relative to the canvas directory, creating it with a placeholder if missing."""
-        file_path = CANVAS_DIR / file_name
+        # CANVAS_DIR already points to canvas/nodes
+        # Remove ALL "nodes/" prefixes to avoid nested paths
+        clean_file_name = file_name
+        while clean_file_name.startswith("nodes/"):
+            clean_file_name = clean_file_name[6:]
+        # Create file - CANVAS_DIR already includes nodes/
+        file_path = CANVAS_DIR / clean_file_name
         if file_path.exists():
             return file_path
 
@@ -177,7 +183,12 @@ class FileDatabase:
         self.files_db[file_id] = new_file
         
         # Create actual node file on filesystem
-        file_path = CANVAS_DIR / file_create_data["filePath"]
+        # CANVAS_DIR already points to canvas/nodes
+        # Remove ALL "nodes/" prefixes to avoid nested paths
+        clean_file_path = file_create_data["filePath"]
+        while clean_file_path.startswith("nodes/"):
+            clean_file_path = clean_file_path[6:]
+        file_path = CANVAS_DIR / clean_file_path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(file_create_data.get("content", ""), encoding='utf-8')
         
@@ -202,7 +213,15 @@ class FileDatabase:
         self.files_db[file_id].isModified = False
         
         # Write to actual file
-        file_path = CANVAS_DIR / self.files_db[file_id].filePath
+        # CANVAS_DIR already points to canvas/nodes
+        # Remove ALL "nodes/" prefixes to avoid nested paths
+        file_path_str = self.files_db[file_id].filePath
+        if file_path_str:
+            while file_path_str.startswith("nodes/"):
+                file_path_str = file_path_str[6:]
+            file_path = CANVAS_DIR / file_path_str
+        else:
+            file_path = CANVAS_DIR / self.files_db[file_id].filePath
         file_path.write_text(content, encoding='utf-8')
     
     def update_file_position(self, file_id: str, x: float, y: float):

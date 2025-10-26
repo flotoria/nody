@@ -243,6 +243,7 @@ class CodeGenerationService:
                 "fileName": file_name,
             }
 
+            # Create file - CANVAS_DIR already points to canvas/nodes
             file_path = CANVAS_DIR / file_name
             file_path.parent.mkdir(parents=True, exist_ok=True)
             if not file_path.exists():
@@ -344,7 +345,12 @@ Generate ONLY the code:"""
                 raise HTTPException(status_code=500, detail="Failed to generate code")
             
             # Write the generated code to the file
-            file_path = CANVAS_DIR / file_name
+            # CANVAS_DIR already points to canvas/nodes
+            # Safeguard: Strip ALL "nodes/" prefixes to avoid nested paths
+            clean_file_name = file_name
+            while clean_file_name.startswith("nodes/"):
+                clean_file_name = clean_file_name[6:]
+            file_path = CANVAS_DIR / clean_file_name
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(generated_code, encoding='utf-8')
             
@@ -352,7 +358,7 @@ Generate ONLY the code:"""
             if file_id in file_db.files_db:
                 file_db.files_db[file_id].content = generated_code
             
-            output_logger.write_output(f"✅ Generated {file_name} ({len(generated_code)} chars)", "SUCCESS")
+            output_logger.write_output(f"✅ Generated {file_name} TO  ({len(generated_code)} chars)", "SUCCESS")
             
             return {
                 "message": f"Successfully generated code for {file_name}",
@@ -448,7 +454,12 @@ Generate ONLY the code:"""
                 
                 if generated_code:
                     # Write the generated code to the file
-                    file_path = CANVAS_DIR / "nodes" / file_name
+                    # CANVAS_DIR already points to canvas/nodes
+                    # Safeguard: Strip ALL "nodes/" prefixes to avoid nested paths
+                    clean_file_name = file_name
+                    while clean_file_name.startswith("nodes/"):
+                        clean_file_name = clean_file_name[6:]
+                    file_path = CANVAS_DIR / clean_file_name
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_text(generated_code, encoding='utf-8')
                     

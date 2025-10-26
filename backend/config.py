@@ -10,6 +10,7 @@ load_dotenv()
 
 # Project paths
 BACKEND_ROOT = Path(__file__).parent
+print(f"BACKEND_ROOT: {BACKEND_ROOT}")
 CANVAS_ROOT = BACKEND_ROOT.parent / "canvas"
 CANVAS_DIR = CANVAS_ROOT / "nodes"
 PROJECT_SPEC_PATH = CANVAS_ROOT / "project-spec.json"
