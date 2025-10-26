@@ -362,4 +362,18 @@
     width: 12px;
     height: 3px;
   }
+  /* React Flow edge styling - appear above folders with blur */
+  .react-flow__edge {
+    z-index: 10 !important;
+  }
+
+  .react-flow__edge-path {
+    opacity: 0.6;
+    filter: blur(0.5px);
+  }
+
+  /* Folder nodes stay at z-index: 1, file nodes at z-index: 2 */
+  .react-flow__node {
+    z-index: auto;
+  }
 }

@@ -117,6 +117,7 @@ type FolderNodeData = {
   height: number
   isExpanded: boolean
   containedFiles: string[]
+  isHovered?: boolean
   onDelete?: (id: string) => void
 }
 
@@ -219,8 +220,12 @@ const FolderNodeComponent = memo(({ data, selected, isConnectable }: NodeProps<F
 
   return (
     <div
-      className={`relative rounded-2xl border-2 bg-primary/10 backdrop-blur-sm transition-all ${
-        selected ? "border-primary/60" : "border-primary/30"
+      className={`relative rounded-2xl border-2 backdrop-blur-sm transition-all duration-200 ${
+        data.isHovered 
+          ? "border-primary bg-primary/25 shadow-lg shadow-primary/20" 
+          : selected 
+            ? "border-primary/60 bg-primary/10" 
+            : "border-primary/30 bg-primary/10"
       }`}
       style={{ width: data.width, height }}
     >
@@ -359,6 +364,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   const [expandedNode, setExpandedNode] = useState<string | null>(null)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null)
   const refreshInFlight = useRef(false)
   const { screenToFlowPosition } = useReactFlow()
 
@@ -706,6 +712,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           height,
           isExpanded: folder.isExpanded,
           containedFiles: folder.containedFiles,
+          isHovered: hoveredFolderId === folder.id,
           onDelete: handleFolderDelete,
         },
         draggable: true,
@@ -739,6 +746,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     openEditor,
     customGenericNodes,
     selectedNodeId,
+    hoveredFolderId,
   ])
 
   const rebuildEdges = useCallback((): Edge[] => {
@@ -752,6 +760,8 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
         data: { type: edge.type ?? "depends_on", description: edge.description },
         type: "smoothstep",
         markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+        zIndex: 10,
+        style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
       }
     })
   }, [edgeRecords])
@@ -873,8 +883,35 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     }
   }, [])
 
+  const handleNodeDrag = useCallback(
+    (_event: React.MouseEvent, node: Node<CanvasNodeData>) => {
+      if (node.type === "fileNode" && isFileNodeData(node.data)) {
+        const { x, y } = node.position
+        const nodeCenterX = x + NODE_WIDTH / 2
+        const nodeCenterY = y + NODE_HEIGHT / 2
+
+        const containingFolder = folderRecords.find((folder) => {
+          const left = folder.x
+          const right = folder.x + folder.width
+          const top = folder.y + FOLDER_HEADER_HEIGHT
+          const bottom = folder.isExpanded
+            ? folder.y + folder.height
+            : folder.y + FOLDER_COLLAPSED_HEIGHT
+          return nodeCenterX >= left && nodeCenterX <= right && nodeCenterY >= top && nodeCenterY <= bottom
+        })
+
+        const targetFolderId = containingFolder ? containingFolder.id : null
+        setHoveredFolderId(targetFolderId)
+      }
+    },
+    [folderRecords]
+  )
+
   const handleNodeDragStop = useCallback(
     async (_event: React.MouseEvent, node: Node<CanvasNodeData>) => {
+      // Clear hover state when drag stops
+      setHoveredFolderId(null)
+      
       if (node.type === "fileNode" && isFileNodeData(node.data)) {
         const fileId = node.id
         const { x, y } = node.position
@@ -964,8 +1001,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     () => ({
       type: "smoothstep" as const,
       animated: false,
+      deletable: true,
       markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-      style: { strokeWidth: 2 },
+      style: { strokeWidth: 2, opacity: 0.6, filter: 'blur(0.5px)' },
+      zIndex: 10,
     }),
     [],
   )
@@ -1074,6 +1113,7 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
             onEdgesDelete={handleEdgesDelete}
             onNodesDelete={handleNodesDelete}
             onConnect={handleConnect}
+            onNodeDrag={handleNodeDrag}
             onNodeDragStop={handleNodeDragStop}
             onSelectionChange={handleSelectionChange}
             onPaneClick={handlePaneClick}
@@ -1171,15 +1211,3 @@ export function Canvas(props: CanvasProps) {
     </ReactFlowProvider>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
-
