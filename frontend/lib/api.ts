@@ -395,6 +395,89 @@ export class FileAPI {
     return { success: true, data }
   }
 
+  static async runFile(fileId: string, onOutput?: (output: string) => void, onComplete?: (success: boolean, returnCode?: number) => void): Promise<{ success: boolean; eventSource?: EventSource; error?: string }> {
+    try {
+      // Use Server-Sent Events for streaming
+      const eventSource = new EventSource(`${API_BASE_URL}/files/${fileId}/run`)
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          
+          if (data.output && onOutput) {
+            onOutput(data.output)
+          }
+          
+          if (data.done !== undefined) {
+            if (onComplete) {
+              onComplete(data.success || false, data.return_code)
+            }
+            eventSource.close()
+          }
+          
+          if (data.error) {
+            console.error('Run error:', data.error)
+            if (onComplete) {
+              onComplete(false)
+            }
+            eventSource.close()
+          }
+        } catch (e) {
+          console.error('Error parsing SSE data:', e)
+        }
+      }
+      
+      eventSource.onerror = (error) => {
+        console.error('EventSource error:', error)
+        if (onComplete) {
+          onComplete(false)
+        }
+        eventSource.close()
+      }
+      
+      return { success: true, eventSource }
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to start file execution'
+      }
+    }
+  }
+
+  static async stopFile(fileId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/files/${fileId}/stop`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return { 
+          success: false, 
+          error: errorData.detail || 'Failed to stop file' 
+        }
+      }
+      const data = await response.json()
+      return { success: data.success || true, message: data.message }
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to stop file'
+      }
+    }
+  }
+
+  static async getFileStatus(fileId: string): Promise<{ status: string; running: boolean; pid?: number; return_code?: number }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/files/${fileId}/status`)
+      if (!response.ok) {
+        return { status: 'not_running', running: false }
+      }
+      return response.json()
+    } catch (error) {
+      return { status: 'not_running', running: false }
+    }
+  }
+
   static async runProject(): Promise<{ success: boolean; progress?: string[] }> {
     const response = await fetch(`${API_BASE_URL}/run`, {
       method: 'POST',

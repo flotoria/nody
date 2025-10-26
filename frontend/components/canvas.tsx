@@ -103,9 +103,12 @@ type FileNodeData = {
   isModified?: boolean
   parentFolder?: string | null
   generating: boolean
+  running: boolean
   description?: string
   onOpen: (id: string) => void
   onGenerate: (id: string) => void
+  onRun?: (id: string) => void
+  onStop?: (id: string) => void
   onDelete: (id: string) => void
 }
 
@@ -188,6 +191,26 @@ const FileNodeComponent = memo(({ id, data, selected, isConnectable }: NodeProps
           >
             Open
           </Button>
+          {hasExistingContent && !data.running && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-green-600"
+              onClick={() => data.onRun?.(id)}
+            >
+              Run
+            </Button>
+          )}
+          {hasExistingContent && data.running && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-red-600"
+              onClick={() => data.onStop?.(id)}
+            >
+              Stop
+            </Button>
+          )}
           {!hasExistingContent && data.description && data.description.trim() && (
             <Button
               size="sm"
@@ -361,16 +384,63 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
   }, [onNodesChangeBase, flowNodes])
   const [pendingEdge, setPendingEdge] = useState<{ from: string; to: string } | null>(null)
   const [generatingNodeId, setGeneratingNodeId] = useState<string | null>(null)
+  const [runningNodeIds, setRunningNodeIds] = useState<Set<string>>(new Set())
   const [expandedNode, setExpandedNode] = useState<string | null>(null)
   const [pendingFileDrop, setPendingFileDrop] = useState<{ x: number; y: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [hoveredFolderId, setHoveredFolderId] = useState<string | null>(null)
   const refreshInFlight = useRef(false)
   const { screenToFlowPosition } = useReactFlow()
+  
+  // Store EventSource references to close them when stopping files
+  const eventSourcesRef = useRef<Map<string, EventSource>>(new Map())
 
   useEffect(() => {
     setSelectedNodeId(selectedNode)
   }, [selectedNode])
+
+  // Poll file statuses to keep running state in sync
+  useEffect(() => {
+    const checkRunningFiles = async () => {
+      if (fileRecords.length === 0) return
+      
+      // Check status of all files
+      const statusChecks = fileRecords.map(file => FileAPI.getFileStatus(file.id))
+      const statuses = await Promise.all(statusChecks)
+      
+      const newRunningIds = new Set<string>()
+      statuses.forEach((status, index) => {
+        if (status.running) {
+          newRunningIds.add(fileRecords[index].id)
+        }
+      })
+      
+      // Only update if changed
+      setRunningNodeIds(prev => {
+        const prevArray = Array.from(prev).sort()
+        const newArray = Array.from(newRunningIds).sort()
+        if (JSON.stringify(prevArray) !== JSON.stringify(newArray)) {
+          return newRunningIds
+        }
+        return prev
+      })
+    }
+    
+    // Check immediately on mount
+    checkRunningFiles()
+    
+    // Then poll every 2 seconds
+    const interval = setInterval(checkRunningFiles, 2000)
+    
+    return () => {
+      clearInterval(interval)
+      // Clean up all EventSources on unmount
+      eventSourcesRef.current.forEach(eventSource => {
+        eventSource.close()
+      })
+      eventSourcesRef.current.clear()
+    }
+  }, [fileRecords])
 
   useEffect(() => {
     let mounted = true
@@ -575,6 +645,103 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     [],
   )
 
+  const handleRunFile = useCallback(
+    async (id: string) => {
+      // Add to running set
+      setRunningNodeIds(prev => new Set(prev).add(id))
+      
+      try {
+        const result = await FileAPI.runFile(
+          id,
+          // onOutput callback
+          (output) => {
+            console.log('File output:', output)
+            // Output is displayed in terminal via output_logger on backend
+          },
+          // onComplete callback
+          (success, returnCode) => {
+            if (success) {
+              toast.success(`File executed successfully`)
+            } else {
+              toast.error(`File execution failed (exit code: ${returnCode})`)
+            }
+            // Remove from running set
+            setRunningNodeIds(prev => {
+              const newSet = new Set(prev)
+              newSet.delete(id)
+              return newSet
+            })
+            // Clean up EventSource
+            const eventSource = eventSourcesRef.current.get(id)
+            if (eventSource) {
+              eventSource.close()
+              eventSourcesRef.current.delete(id)
+            }
+          }
+        )
+        
+        if (!result.success) {
+          toast.error(`Failed to start file: ${result.error}`)
+          // Remove from running set on error
+          setRunningNodeIds(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(id)
+            return newSet
+          })
+        } else {
+          toast.info(`File started - check terminal for output`)
+          // Store EventSource reference
+          if (result.eventSource) {
+            eventSourcesRef.current.set(id, result.eventSource)
+          }
+        }
+      } catch (error) {
+        console.error("Failed to run file:", error)
+        toast.error("Failed to run file")
+        // Remove from running set on error
+        setRunningNodeIds(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(id)
+          return newSet
+        })
+      }
+    },
+    [],
+  )
+
+  const handleStopFile = useCallback(
+    async (id: string) => {
+      try {
+        // Show immediate feedback that stop was registered
+        toast.info("Stopping file...")
+        
+        // Close EventSource first
+        const eventSource = eventSourcesRef.current.get(id)
+        if (eventSource) {
+          eventSource.close()
+          eventSourcesRef.current.delete(id)
+        }
+        
+        const result = await FileAPI.stopFile(id)
+        if (result.success) {
+          toast.success(`File stopped successfully`)
+          // Remove from running set
+          setRunningNodeIds(prev => {
+            const newSet = new Set(prev)
+            newSet.delete(id)
+            return newSet
+          })
+        } else {
+          toast.error(`Failed to stop file: ${result.error}`)
+        }
+      } catch (error) {
+        console.error("Failed to stop file:", error)
+        toast.error("Failed to stop file")
+      }
+    },
+    [],
+  )
+
   const handleFileSave = useCallback(async (nodeId: string, content: string) => {
     try {
       await FileAPI.updateFileContent(nodeId, content)
@@ -680,9 +847,12 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
           isModified: record.isModified,
           parentFolder: record.parentFolder ?? null,
           generating: generatingNodeId === record.id,
+          running: runningNodeIds.has(record.id),
           description: meta?.description,
           onOpen: openEditor,
           onGenerate: handleGenerateCode,
+          onRun: handleRunFile,
+          onStop: handleStopFile,
           onDelete: handleFileDelete,
         },
         style: { width: NODE_WIDTH, zIndex: 2 },
@@ -741,8 +911,10 @@ function CanvasInner({ selectedNode, onSelectNode, onDataChange, onMetadataUpdat
     folderRecords,
     metadataRecords,
     generatingNodeId,
+    runningNodeIds,
     handleFileDelete,
     handleGenerateCode,
+    handleRunFile,
     openEditor,
     customGenericNodes,
     selectedNodeId,
