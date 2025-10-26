@@ -2407,6 +2407,215 @@ export type ContactFormValues = z.infer<typeof contactFormSchema>
 `,
       },
     },
+    {
+      label: "HTML Template",
+      type: "file",
+      badge: "HTML",
+      description: "Basic HTML page structure.",
+      categoryLabel: "Frontend / UI",
+      template: {
+        defaultFileName: "index.html",
+        fileType: "html",
+        description: "Standard HTML5 document with meta tags and structure.",
+        content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Your page description here">
+    <title>Your Page Title</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <h1>Your Website</h1>
+            <ul>
+                <li><a href="#home">Home</a></li>
+                <li><a href="#about">About</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </nav>
+    </header>
+    
+    <main>
+        <section id="home">
+            <h2>Welcome</h2>
+            <p>This is your main content area.</p>
+        </section>
+        
+        <section id="about">
+            <h2>About</h2>
+            <p>Learn more about us here.</p>
+        </section>
+        
+        <section id="contact">
+            <h2>Contact</h2>
+            <p>Get in touch with us.</p>
+        </section>
+    </main>
+    
+    <footer>
+        <p>&copy; 2024 Your Website. All rights reserved.</p>
+    </footer>
+    
+    <script src="script.js"></script>
+</body>
+</html>`,
+      },
+    },
+    {
+      label: "CSS Stylesheet",
+      type: "file",
+      badge: "CSS",
+      description: "Modern CSS with flexbox and grid.",
+      categoryLabel: "Frontend / UI",
+      template: {
+        defaultFileName: "styles.css",
+        fileType: "css",
+        description: "Responsive CSS with modern layout techniques.",
+        content: `/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #fff;
+}
+
+/* Header styles */
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem 0;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+nav {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 2rem;
+}
+
+nav h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+
+nav ul {
+    display: flex;
+    list-style: none;
+    gap: 2rem;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    transition: opacity 0.3s ease;
+}
+
+nav a:hover {
+    opacity: 0.8;
+}
+
+/* Main content */
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+section {
+    margin-bottom: 3rem;
+    padding: 2rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h2 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    font-size: 2rem;
+}
+
+p {
+    margin-bottom: 1rem;
+    color: #666;
+}
+
+/* Footer */
+footer {
+    background: #2c3e50;
+    color: white;
+    text-align: center;
+    padding: 2rem;
+    margin-top: 3rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    nav {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    nav ul {
+        gap: 1rem;
+    }
+    
+    main {
+        padding: 1rem;
+    }
+    
+    section {
+        padding: 1rem;
+    }
+    
+    h2 {
+        font-size: 1.5rem;
+    }
+}
+
+/* Utility classes */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+
+.btn {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    border-radius: 5px;
+    transition: background 0.3s ease;
+}
+
+.btn:hover {
+    background: #5a6fd8;
+}`,
+      },
+    },
   ],
   security: [
     {
@@ -2753,8 +2962,8 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onUpdateDescription
           </TabsList>
         </div>
 
-        <TabsContent value="nodes" className="flex-1 overflow-y-auto custom-scrollbar m-0">
-          <div className="p-4 border-b border-border">
+        <TabsContent value="nodes" className="flex-1 flex flex-col m-0">
+          <div className="p-4 border-b border-border flex-shrink-0">
             <div className="space-y-1">
               {nodeCategories.map((category) => {
                 const Icon = category.icon
@@ -2763,11 +2972,10 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onUpdateDescription
                   <button
                     key={category.id}
                     onClick={() => setSelectedCategory(category.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all border ${
-                      isSelected
-                        ? `neu-pressed bg-background ${category.bgColor} ${category.borderColor}`
-                        : "neu-raised-sm neu-hover neu-active bg-card border-transparent"
-                    }`}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all border ${isSelected
+                      ? `neu-pressed bg-background ${category.bgColor} ${category.borderColor}`
+                      : "neu-raised-sm neu-hover neu-active bg-card border-transparent"
+                      }`}
                   >
                     <Icon className={`w-4 h-4 ${category.color}`} />
                     <span className="text-sm font-medium text-foreground">{category.name}</span>
@@ -2777,38 +2985,40 @@ export function LeftSidebar({ selectedNode, nodes, metadata, onUpdateDescription
             </div>
           </div>
 
-          <div className="p-4 space-y-2">
-            {nodeTemplates[selectedCategory]?.map((node) => (
-              <div
-                key={node.label}
-                draggable
-                onDragStart={(e) => handleDragStart(e, node)}
-                className="neu-raised neu-hover neu-active bg-card p-4 rounded-xl cursor-move transition-all hover:scale-105 border border-border/20"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${node.template ? "bg-primary" : "bg-muted"}`} />
-                    <span className="text-sm font-semibold text-foreground">{node.label}</span>
+          <div className="h-[400px] overflow-y-auto custom-scrollbar p-4">
+            <div className="space-y-2 pb-4">
+              {nodeTemplates[selectedCategory]?.map((node) => (
+                <div
+                  key={node.label}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, node)}
+                  className="neu-raised neu-hover neu-active bg-card p-4 rounded-xl cursor-move transition-all hover:scale-105 border border-border/20"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${node.template ? "bg-primary" : "bg-muted"}`} />
+                      <span className="text-sm font-semibold text-foreground">{node.label}</span>
+                    </div>
+                    {node.badge ? (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        {node.badge}
+                      </span>
+                    ) : null}
                   </div>
-                  {node.badge ? (
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                      {node.badge}
-                    </span>
+                  {node.description ? (
+                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{node.description}</p>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">Drag to canvas</p>
+                  )}
+                  {node.template ? (
+                    <p className="mt-3 text-[11px] font-mono text-muted-foreground">
+                      {node.template.defaultFileName}
+                    </p>
                   ) : null}
+                  <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">{node.categoryLabel}</p>
                 </div>
-                {node.description ? (
-                  <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{node.description}</p>
-                ) : (
-                  <p className="mt-2 text-xs text-muted-foreground">Drag to canvas</p>
-                )}
-                {node.template ? (
-                  <p className="mt-3 text-[11px] font-mono text-muted-foreground">
-                    {node.template.defaultFileName}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">{node.categoryLabel}</p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </TabsContent>
 
