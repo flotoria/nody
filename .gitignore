@@ -183,6 +183,6 @@ storybook-static/
 .turbo
 
 __pycache__
-canvas/
+/canvas/
 .venv/
 dummy 
