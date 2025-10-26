@@ -186,3 +186,5 @@ __pycache__
 /canvas/
 .venv/
 dummy 
+
+new_canvas/

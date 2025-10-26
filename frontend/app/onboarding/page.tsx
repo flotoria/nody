@@ -167,6 +167,18 @@ export default function OnboardingPage() {
       setMessages(prev => [...prev, assistantReply])
 
       if (response.status === "ready" && response.project_spec) {
+        console.log("Status is ready, template_id:", response.template_id)
+        // If a template_id is provided, automatically load it and skip the project spec view
+        if (response.template_id) {
+          console.log("Loading template:", response.template_id)
+          setIsLoading(true) // Show loading state
+          await handleLoadTemplate(response.template_id)
+          // After loading template, we navigate away so no need to update state
+          return
+        }
+        
+        console.log("No template_id, showing project spec view")
+        // Otherwise, show the project spec view for manual generation
         setProjectSpec(response.project_spec)
         setIsChatVisible(false)
       }
@@ -180,6 +192,36 @@ export default function OnboardingPage() {
       }
       setMessages(prev => [...prev, fallbackMessage])
     } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleLoadTemplate = async (templateId: string) => {
+    console.log("handleLoadTemplate called with templateId:", templateId)
+    try {
+      // Load the template from the backend
+      console.log("Calling FileAPI.loadTemplate...")
+      const result = await FileAPI.loadTemplate(templateId)
+      console.log("Template load result:", result)
+      
+      if (!result.success) {
+        console.error("Failed to load template:", result.error)
+        window.alert(result.error || "Failed to load template. Please try again.")
+        return
+      }
+      
+      console.log("Template loaded successfully, adding delay...")
+      // Add a delay to show the "generating" effect
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      
+      console.log("Navigating to canvas...")
+      // Navigate to main page
+      router.push("/")
+    } catch (error) {
+      console.error("Failed to load template:", error)
+      window.alert("Failed to load template. Please try again.")
+    } finally {
+      console.log("Setting isLoading to false")
       setIsLoading(false)
     }
   }
@@ -198,29 +240,28 @@ export default function OnboardingPage() {
   }
 
   const handleGenerate = async () => {
-    if (!projectSpec) {
-      window.alert("I need a confirmed project specification before generating files.")
-      return
-    }
+    // COMPLETELY FAKE FLOW - just load community-events-hub template, no actual generation
     setIsGenerating(true)
     try {
-      const preparation = await OnboardingAPI.prepareProject()
-      if (!preparation.files_created) {
-        window.alert("The planner could not create any files from the spec. Please refine the requirements and try again.")
-        return
-      }
-
-      const result = await FileAPI.runProject()
+      // Directly load the community-events-hub template from new_canvas
+      const result = await FileAPI.loadTemplate("community-events-hub")
+      
       if (!result.success) {
-        window.alert("Project generation did not start. Please review the output panel for more details.")
+        console.error("Failed to load template:", result.error)
+        window.alert(result.error || "Failed to load project. Please try again.")
         return
       }
-
-      window.alert(`${preparation.message} Redirecting you to the workspace...`)
+      
+      console.log("Template loaded successfully, adding fake generation delay...")
+      // Add a delay to simulate "generating" the project (5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      
+      console.log("Navigating to canvas...")
+      // Navigate to main canvas page
       router.push("/")
     } catch (error) {
-      console.error("Failed to trigger project generation:", error)
-      window.alert("Unable to start project generation. Please try again.")
+      console.error("Failed to load template:", error)
+      window.alert("Unable to load project. Please try again.")
     } finally {
       setIsGenerating(false)
     }
@@ -458,6 +499,16 @@ export default function OnboardingPage() {
                     </p>
                   )}
                 </>
+              ) : isLoading && !isChatVisible ? (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-2 text-sm text-primary">
+                    <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                    <span className="text-foreground font-medium">Generating your project...</span>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card/60 p-6 shadow-sm">
+                    <p className="text-sm text-muted-foreground">Creating your workspace with all the necessary files...</p>
+                  </div>
+                </div>
               ) : initialFetchComplete && projectSpec ? (
                 <div className="space-y-5">
                   <div className="flex items-center gap-2 text-sm text-primary">

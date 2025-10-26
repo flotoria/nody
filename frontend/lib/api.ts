@@ -124,6 +124,7 @@ export interface OnboardingChatResult {
   missing_information: string[]
   project_spec?: ProjectSpec | null
   spec_saved: boolean
+  template_id?: string
 }
 
 export interface ProjectSpecDocument {

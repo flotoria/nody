@@ -62,11 +62,27 @@ def position_for_index(index: int) -> Tuple[float, float]:
 def extract_structured_payload(raw_content: str) -> Dict[str, Any]:
     """Parse an assistant response into a structured JSON payload."""
     content = raw_content.strip()
+    
+    # Remove markdown code fences if present
     if content.startswith("```"):
-        content = content.strip("`")
-        if "\n" in content:
-            _, remainder = content.split("\n", 1)
-            content = remainder
+        lines = content.split("\n")
+        # Find the first line that starts with {
+        for i, line in enumerate(lines):
+            if "{" in line:
+                # Rejoin from here to the end, removing the closing ```
+                content = "\n".join(lines[i:]).rstrip("`").rstrip()
+                break
+    
+    # Remove any trailing markdown code fence
+    content = content.rstrip("`").rstrip()
+    
+    # Try to find JSON content between { and }
+    start_idx = content.find("{")
+    end_idx = content.rfind("}")
+    
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        content = content[start_idx:end_idx + 1]
+    
     try:
         return json.loads(content)
     except json.JSONDecodeError as exc:

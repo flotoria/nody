@@ -50,7 +50,6 @@ echo "[run_app] starting backend (uvicorn)..."
 ) &
 BACKEND_PID=$!
 
-# Give the backend a brief moment to boot before starting the frontend.
 sleep 2
 
 echo "[run_app] starting frontend (Next.js dev server)..."
@@ -69,5 +68,4 @@ FRONTEND_PID=$!
 echo "[run_app] backend PID=${BACKEND_PID}, frontend PID=${FRONTEND_PID}"
 echo "[run_app] press Ctrl+C to stop both services."
 
-# Wait for either process to exit, then trigger cleanup via trap.
 wait -n "${BACKEND_PID}" "${FRONTEND_PID}"

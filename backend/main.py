@@ -512,63 +512,71 @@ async def generate_template_output(template_id: str, metadata: dict):
 
 @app.post("/canvas/load-template/{template_id}")
 async def load_template(template_id: str):
-    """Load a template project from dummy/ directory into canvas"""
+    """Load a template project from new_canvas/ or dummy/ directory into canvas"""
     try:
         import shutil
         from pathlib import Path
         
-        # Define template mapping (template IDs to folder names)
-        template_mapping = {
-            "hello-world": "simple-todo-tracker",
-            "frontend-web": "personal-portfolio-website",
-            "data-pipeline": "csv-data-analyzer",
-            "test": "test"
-        }
+        # First try new_canvas directory
+        new_canvas_path = BACKEND_ROOT.parent / "new_canvas" / template_id
+        dummy_path = BACKEND_ROOT.parent / "dummy"
         
-        if template_id not in template_mapping:
-            raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        # Check if template exists in new_canvas
+        if new_canvas_path.exists():
+            template_folder_name = template_id
+            template_path = new_canvas_path
+        else:
+            # Fall back to old dummy directory mapping
+            template_mapping = {
+                "hello-world": "simple-todo-tracker",
+                "frontend-web": "personal-portfolio-website",
+                "data-pipeline": "csv-data-analyzer",
+                "test": "test"
+            }
+            
+            if template_id not in template_mapping:
+                raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+            
+            template_folder_name = template_mapping[template_id]
+            template_path = dummy_path / template_folder_name
         
-        template_folder_name = template_mapping[template_id]
-        # dummy/ is at the root level, not in backend/
-        # BACKEND_ROOT is backend/, so we need to go up one level
-        dummy_template_path = BACKEND_ROOT.parent / "dummy" / template_folder_name
-        
-        if not dummy_template_path.exists():
-            raise HTTPException(status_code=404, detail=f"Template folder {template_folder_name} not found at {dummy_template_path}")
+        if not template_path.exists():
+            raise HTTPException(status_code=404, detail=f"Template folder {template_folder_name} not found at {template_path}")
         
         # Clear the canvas first
         EDGES_FILE.write_text(json.dumps({"edges": []}, indent=2), encoding='utf-8')
         METADATA_FILE.write_text(json.dumps({}, indent=2), encoding='utf-8')
         
+        # Remove CANVAS_DIR if it exists
         if CANVAS_DIR.exists():
             shutil.rmtree(CANVAS_DIR)
         
-        CANVAS_DIR.mkdir(exist_ok=True)
         file_db.files_db.clear()
         output_logger.clear_output()
         
         # Copy metadata.json
-        template_metadata = dummy_template_path / "metadata.json"
+        template_metadata = template_path / "metadata.json"
         if template_metadata.exists():
             shutil.copy(template_metadata, METADATA_FILE)
         
         # Copy edges.json
-        template_edges = dummy_template_path / "edges.json"
+        template_edges = template_path / "edges.json"
         if template_edges.exists():
             shutil.copy(template_edges, EDGES_FILE)
         
         # Copy nodes directory
-        template_nodes = dummy_template_path / "nodes"
+        template_nodes = template_path / "nodes"
         if template_nodes.exists():
-            import shutil
-            shutil.copytree(template_nodes, CANVAS_DIR / "nodes")
+            # Copy the entire nodes directory from template
+            # copytree will create CANVAS_DIR automatically, so no need to mkdir first
+            shutil.copytree(template_nodes, CANVAS_DIR)
         
         # Refresh the database from the new metadata
         metadata = file_db.load_metadata()
         file_db.refresh_files_from_metadata(metadata)
         
         # Determine output file path for this template
-        template_output_file = dummy_template_path / "output.json"
+        template_output_file = template_path / "output.json" if (template_path / "output.json").exists() else None
         
         # Save which template is active and its output path
         # Store the proper template_id and folder info

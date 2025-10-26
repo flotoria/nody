@@ -8,11 +8,24 @@ from typing import Dict, Any, List
 from dotenv import load_dotenv
 import anthropic
 
+# Import CanvasDB for semantic search
+import sys
+from pathlib import Path
+
+# Add backend directory to path for imports
+backend_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(backend_dir))
+
+from db.canvas_db import CanvasDB
+
 # Load environment variables
 load_dotenv()
 
 # Path to metadata.json - go up from backend/agents to backend, then to root, then into canvas
 METADATA_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "canvas", "metadata.json")
+
+# Initialize CanvasDB instance for semantic search
+canvas_db = CanvasDB()
 
 def load_metadata() -> Dict[str, Any]:
     """Load metadata from metadata.json file."""
@@ -83,6 +96,46 @@ def get_metadata() -> Dict[str, Any]:
     """Get the current metadata."""
     return load_metadata()
 
+def search_similar_nodes(query: str, n_results: int = 5) -> Dict[str, Any]:
+    """
+    Search for similar existing nodes using semantic search in ChromaDB.
+    
+    Args:
+        query: Search query text
+        n_results: Number of results to return
+        
+    Returns:
+        Dictionary with success status and results
+    """
+    try:
+        nodes = canvas_db.query_nodes(query, n_results=n_results)
+        return {
+            "success": True,
+            "nodes": [{"id": node['id'], "metadata": node['metadata']} for node in nodes]
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+def search_related_files(query: str, n_results: int = 5) -> Dict[str, Any]:
+    """
+    Search for related files using semantic search in ChromaDB.
+    
+    Args:
+        query: Search query text
+        n_results: Number of results to return
+        
+    Returns:
+        Dictionary with success status and results
+    """
+    try:
+        files = canvas_db.query_files(query, n_results=n_results)
+        return {
+            "success": True,
+            "files": [{"path": file['id'], "content": file['content'][:500], "metadata": file['metadata']} for file in files]
+        }
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
 
 def create_node_generation_agent():
     """
@@ -140,6 +193,42 @@ def create_node_generation_agent():
                 },
                 "required": ["nodes"]
             }
+        },
+        {
+            "name": "search_similar_nodes",
+            "description": "Search for similar existing nodes using semantic search. Use this to avoid creating duplicate nodes or to understand existing architecture before creating new nodes.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find similar nodes"
+                    },
+                    "n_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5)"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "search_related_files",
+            "description": "Search for related files and their content using semantic search. Use this to understand context and avoid duplicating functionality.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find related files"
+                    },
+                    "n_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5)"
+                    }
+                },
+                "required": ["query"]
+            }
         }
     ]
     
@@ -151,16 +240,25 @@ def create_node_generation_agent():
 
 Key responsibilities:
 - Understand user requests from conversation history
+- Search existing codebase to understand context and avoid duplicates
 - Identify what files should be created
 - Generate file names and descriptions that clearly explain what each file does
 - Use the add_nodes_to_metadata tool to actually create nodes
+
+WORKFLOW:
+1. When the user makes a request, FIRST use search_similar_nodes and search_related_files to understand the existing codebase
+2. Analyze the existing architecture to avoid duplicating functionality
+3. Identify what NEW files are needed (don't recreate existing ones)
+4. Generate appropriate node descriptions based on understanding of existing code
+5. Use add_nodes_to_metadata to create the new nodes
 
 CRITICAL RULES:
 1. You MUST ONLY generate file nodes (type: "file")
 2. You MUST ONLY generate Python files (.py extension)
 3. You do NOT generate process, data, api, or database nodes
 4. You do NOT generate code content for nodes
-5. Each file node must have:
+5. ALWAYS search existing nodes FIRST to understand the codebase and avoid duplicates
+6. Each file node must have:
    - id: Unique identifier (e.g., "node_1", "node_2", etc.)
    - type: MUST be "file"
    - description: Detailed description of what the file does
@@ -168,11 +266,11 @@ CRITICAL RULES:
    - x: X coordinate (100, 200, 300, etc.)
    - y: Y coordinate (100, 200, 300, etc.)
 
-6. fileName and description can be different - description explains what the file does, fileName is the actual file name
-7. Check for fileName conflicts - if a fileName already exists, use a different name
-8. ALL files must be Python files with .py extension
+7. fileName and description can be different - description explains what the file does, fileName is the actual file name
+8. Check for fileName conflicts - if a fileName already exists, use a different name
+9. ALL files must be Python files with .py extension
 
-CRITICAL: When the user asks you to create nodes, you MUST use the add_nodes_to_metadata tool. Do NOT just describe nodes in your response."""
+CRITICAL: When the user asks you to create nodes, you MUST first search for similar nodes to understand context, then use add_nodes_to_metadata to create nodes. Do NOT just describe nodes in your response."""
     }
     
     return client, agent_config
@@ -253,6 +351,32 @@ Please analyze the user's request and generate NEW nodes. Do NOT duplicate exist
                         "type": "tool_result",
                         "tool_use_id": content_block.id,
                         "content": str(result)
+                    })
+                elif tool_name == "search_similar_nodes":
+                    # Execute the tool
+                    query = tool_input.get("query", "")
+                    n_results = tool_input.get("n_results", 5)
+                    result = search_similar_nodes(query, n_results)
+                    print(f"Search for '{query}': found {len(result.get('nodes', []))} similar nodes")
+                    
+                    # Add tool result to messages for Anthropic
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": content_block.id,
+                        "content": json.dumps(result, indent=2)
+                    })
+                elif tool_name == "search_related_files":
+                    # Execute the tool
+                    query = tool_input.get("query", "")
+                    n_results = tool_input.get("n_results", 5)
+                    result = search_related_files(query, n_results)
+                    print(f"Search for '{query}': found {len(result.get('files', []))} related files")
+                    
+                    # Add tool result to messages for Anthropic
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": content_block.id,
+                        "content": json.dumps(result, indent=2)
                     })
         
         # If there are tool results, send them back to Anthropic
