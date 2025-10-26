@@ -123,7 +123,8 @@ class FileDatabase:
     def save_metadata(self, metadata: Dict[str, Any]):
         """Save metadata to JSON file."""
         try:
-            self.refresh_files_from_metadata(metadata)
+            # Don't refresh here - it causes files to be deleted when saving partial metadata
+            # The refresh_files_from_metadata will be called by the polling/pulling process instead
             METADATA_FILE.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding='utf-8')
         except IOError as e:
             print(f"Error saving metadata: {e}")
@@ -167,7 +168,12 @@ class FileDatabase:
             if existing_file.filePath == file_create_data["filePath"]:
                 raise ValueError(f"File with name '{file_create_data['filePath']}' already exists")
         
-        file_id = str(len(self.files_db) + 1)
+        # Generate a unique ID by finding the next available number
+        existing_ids = set(int(fid) for fid in self.files_db.keys() if fid.isdigit())
+        if existing_ids:
+            file_id = str(max(existing_ids) + 1)
+        else:
+            file_id = "1"
 
         new_file = FileNode(
             id=file_id,

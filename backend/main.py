@@ -104,6 +104,7 @@ async def generate_node_code(node: dict):
     try:
         file_name = node.get("fileName", f"file_{node.get('id')}.py")
         description = node.get("description", "")
+        node_id = node.get("id")
         
         # Extract just the filename without any path (to avoid nesting issues)
         base_file_name = os.path.basename(file_name)
@@ -120,9 +121,129 @@ async def generate_node_code(node: dict):
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(code_content)
+        
+        # Update the in-memory files_db cache with the generated code
+        if node_id and node_id in file_db.files_db:
+            file_db.files_db[node_id].content = code_content
+        
         print(f"Generated code for {file_name}")
     except Exception as e:
         print(f"Error generating code for {node.get('id')}: {e}")
+
+
+async def generate_edges_for_nodes(generated_nodes: List[dict]):
+    """Generate edges between nodes based on their descriptions and relationships."""
+    try:
+        if not generated_nodes or len(generated_nodes) < 2:
+            return
+        
+        # Load current metadata to get all nodes for context
+        metadata = file_db.load_metadata()
+        
+        # Create a simplified node list with just the essentials for edge generation
+        nodes_for_analysis = []
+        for node in generated_nodes:
+            node_id = node.get("id")
+            if node_id and node_id in metadata:
+                node_data = metadata[node_id]
+                nodes_for_analysis.append({
+                    "id": node_id,
+                    "fileName": node_data.get("fileName", f"file_{node_id}.py"),
+                    "description": node_data.get("description", ""),
+                    "type": node_data.get("type", "file")
+                })
+        
+        if len(nodes_for_analysis) < 2:
+            return
+        
+        # Use AI to determine relationships between nodes
+        prompt = f"""Given these nodes in a project, determine which nodes should be connected with edges.
+
+Nodes:
+{json.dumps(nodes_for_analysis, indent=2)}
+
+Return ONLY a JSON array of edges in this format:
+[
+  {{"from": "node_id_1", "to": "node_id_2", "type": "depends_on", "description": "brief explanation"}},
+  {{"from": "node_id_1", "to": "node_id_3", "type": "calls", "description": "brief explanation"}}
+]
+
+Guidelines:
+- Only create edges that make logical sense based on the node descriptions
+- Use "depends_on" for files that import or require other files
+- Use "calls" for files that call functions from other files
+- Only connect nodes that actually relate to each other based on their purpose
+- Return an empty array [] if no meaningful connections exist
+- Do NOT connect all nodes to all other nodes (be selective and thoughtful)
+- Focus on the most important dependencies only
+
+Output ONLY the JSON array, no markdown, no explanation:"""
+        
+        response = code_generation_service.client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        # Extract edges from response
+        edges_json = ""
+        for block in response.content:
+            if block.type == "text":
+                edges_json += block.text
+        
+        # Parse the JSON edges
+        try:
+            # Clean up any markdown formatting
+            edges_json = edges_json.strip()
+            if edges_json.startswith("```"):
+                edges_json = edges_json.strip("`")
+                if "\n" in edges_json:
+                    _, edges_json = edges_json.split("\n", 1)
+            if edges_json.endswith("```"):
+                edges_json = edges_json[:-3]
+            
+            new_edges = json.loads(edges_json.strip())
+            
+            if not isinstance(new_edges, list):
+                return
+            
+            # Load existing edges
+            edges = []
+            if EDGES_FILE.exists():
+                with open(EDGES_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    edges = data.get("edges", [])
+            
+            # Add new edges (avoid duplicates)
+            existing_edge_tuples = {(e.get("from"), e.get("to")) for e in edges}
+            
+            for edge in new_edges:
+                if isinstance(edge, dict) and "from" in edge and "to" in edge:
+                    edge_tuple = (edge.get("from"), edge.get("to"))
+                    if edge_tuple not in existing_edge_tuples:
+                        edges.append({
+                            "from": edge.get("from"),
+                            "to": edge.get("to"),
+                            "type": edge.get("type", "depends_on"),
+                            "description": edge.get("description", "")
+                        })
+                        existing_edge_tuples.add(edge_tuple)
+            
+            # Save edges
+            edges_data = {"edges": edges}
+            with open(EDGES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(edges_data, f, indent=2)
+            
+            print(f"Generated {len(new_edges)} edges between nodes")
+            
+        except json.JSONDecodeError as e:
+            print(f"Error parsing edges JSON: {e}")
+            print(f"Raw response: {edges_json}")
+    
+    except Exception as e:
+        print(f"Error generating edges: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.get("/")
@@ -773,14 +894,36 @@ async def chat_nodes(request: NodeChatRequest):
         # Generate nodes using Anthropic with agent config
         generated_nodes = generate_nodes_from_conversation(_node_gen_client, _node_gen_agent_config, anthropic_messages)
         
-        # Create empty files for any new nodes
+        # Create files and generate code for any new nodes
         if generated_nodes:
+            # First, create empty files for any new nodes
             create_empty_files_for_metadata()
+            
+            # Then generate code for each newly created node
+            metadata = file_db.load_metadata()
+            for node in generated_nodes:
+                node_id = node.get("id")
+                if node_id and node_id in metadata:
+                    # Generate code for this node based on its description
+                    try:
+                        await generate_node_code(metadata[node_id])
+                        print(f"Successfully generated code for node {node_id}")
+                    except Exception as e:
+                        print(f"Error generating code for node {node_id}: {e}")
+                        # Continue with other nodes even if one fails
+            
+            # Generate edges between the newly created nodes
+            try:
+                await generate_edges_for_nodes(generated_nodes)
+                print(f"Successfully generated edges between nodes")
+            except Exception as e:
+                print(f"Error generating edges between nodes: {e}")
+                # Don't fail the whole request if edge generation fails
         
         # Create response message
-        assistant_message = "I've analyzed your conversation and generated appropriate nodes for your canvas."
+        assistant_message = "I've analyzed your conversation and generated nodes with code and edges for your canvas."
         if generated_nodes:
-            assistant_message += f" I've created {len(generated_nodes)} nodes to help you build what you described."
+            assistant_message += f" I've created {len(generated_nodes)} nodes with generated code and automatic connections to help you build what you described."
         
         return NodeChatResponse(
             message=assistant_message,
